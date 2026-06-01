@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { base44 } from '@/api/base44Client';
 import { useAuth } from '@/lib/AuthContext';
-import { Search, FileText, Upload, ExternalLink, Folder } from 'lucide-react';
+import { Search, FileText, Upload, ExternalLink, Folder, ArrowLeft, Calendar, FolderOpen } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -111,139 +111,90 @@ export default function Documents() {
 
   return (
     <div>
-      <PageHeader
-        title="Documents"
-        description="Upload and manage project documents"
-        actions={
-          !selectedProject && (
-            <Button onClick={() => setShowUpload(true)} className="gap-2">
-              <Upload className="w-4 h-4" /> Upload Document
-            </Button>
-          )
-        }
-      />
-
-      <div className="flex flex-col sm:flex-row gap-3 mb-6">
-        {projects.length > 1 && (
-          <Select value={projectFilter} onValueChange={v => { setProjectFilter(v); setFolderFilter('all'); }}>
-            <SelectTrigger className="w-full sm:w-48">
-              <SelectValue placeholder="All Projects" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All Projects</SelectItem>
-              {projects.map(p => <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>)}
-            </SelectContent>
-          </Select>
-        )}
-        {!selectedProject && (
-          <>
-            <div className="relative flex-1">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-              <Input placeholder="Search documents..." value={search} onChange={e => setSearch(e.target.value)} className="pl-9" />
-            </div>
-            {allFolders.length > 0 && (
-              <Select value={folderFilter} onValueChange={setFolderFilter}>
-                <SelectTrigger className="w-full sm:w-44">
-                  <SelectValue placeholder="All Folders" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All Folders</SelectItem>
-                  <SelectItem value="__none__">No Folder</SelectItem>
-                  {allFolders.map(f => <SelectItem key={f} value={f}>{f}</SelectItem>)}
-                </SelectContent>
-              </Select>
-            )}
-            <Select value={statusFilter} onValueChange={setStatusFilter}>
-              <SelectTrigger className="w-full sm:w-40">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Status</SelectItem>
-                <SelectItem value="Draft">Draft</SelectItem>
-                <SelectItem value="In Review">In Review</SelectItem>
-                <SelectItem value="Approved">Approved</SelectItem>
-                <SelectItem value="Superseded">Superseded</SelectItem>
-              </SelectContent>
-            </Select>
-          </>
-        )}
-      </div>
-
-      {/* Folder view when a project is selected */}
       {selectedProject ? (
-        <ProjectDocsPanel project={selectedProject} docs={selectedProjectDocs} />
-      ) : isLoading ? (
-        <div className="space-y-3">
-          {[1,2,3].map(i => <div key={i} className="h-16 bg-muted rounded-lg animate-pulse" />)}
-        </div>
-      ) : filtered.length === 0 ? (
-        <EmptyState icon={FileText} title="No documents found" description="Upload your first document" actionLabel="Upload" onAction={() => setShowUpload(true)} />
+        <>
+          {/* Project docs view */}
+          <div className="flex items-center gap-2 mb-4">
+            <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setProjectFilter('all')}>
+              <ArrowLeft className="w-4 h-4" />
+            </Button>
+            <span className="text-sm text-muted-foreground cursor-pointer hover:text-foreground" onClick={() => setProjectFilter('all')}>Documents</span>
+            <span className="text-sm text-muted-foreground">/</span>
+            <span className="text-sm font-medium">{selectedProject.name}</span>
+          </div>
+          <PageHeader
+            title={selectedProject.name}
+            description="Project documents"
+            actions={
+              <Button onClick={() => setShowUpload(true)} className="gap-2">
+                <Upload className="w-4 h-4" /> Upload Document
+              </Button>
+            }
+          />
+          <ProjectDocsPanel project={selectedProject} docs={selectedProjectDocs} />
+        </>
       ) : (
-        <Card>
-          <CardContent className="p-0">
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="text-left text-xs text-muted-foreground border-b bg-muted/30">
-                    <th className="p-3 font-medium">Name</th>
-                    <th className="p-3 font-medium hidden sm:table-cell">Project</th>
-                    <th className="p-3 font-medium hidden md:table-cell">Folder</th>
-                    <th className="p-3 font-medium hidden md:table-cell">Uploaded By</th>
-                    <th className="p-3 font-medium hidden lg:table-cell">Date</th>
-                    <th className="p-3 font-medium">Status</th>
-                    <th className="p-3 font-medium w-10"></th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y">
-                  {filtered.map(doc => (
-                    <tr key={doc.id} className="hover:bg-muted/30 transition-colors">
-                      <td className="p-3">
-                        <a href={doc.file_url} target="_blank" rel="noopener noreferrer" className="font-medium text-primary hover:underline flex items-center gap-1">
-                          {doc.name} <ExternalLink className="w-3 h-3" />
-                        </a>
-                      </td>
-                      <td className="p-3 hidden sm:table-cell text-muted-foreground">
-                        {projectMap[doc.project_id] || '—'}
-                      </td>
-                      <td className="p-3 hidden md:table-cell text-muted-foreground">
-                        {doc.folder ? (
-                          <span className="flex items-center gap-1"><Folder className="w-3 h-3" />{doc.folder}</span>
-                        ) : <span className="text-muted-foreground/40">—</span>}
-                      </td>
-                      <td className="p-3 hidden md:table-cell text-muted-foreground">{doc.uploaded_by_name}</td>
-                      <td className="p-3 hidden lg:table-cell text-muted-foreground">
-                        {format(new Date(doc.created_date), 'MMM d, yyyy')}
-                      </td>
-                      <td className="p-3">
-                        <Select
-                          value={doc.status}
-                          onValueChange={v => statusMutation.mutate({ id: doc.id, status: v, ownerEmail: doc.uploaded_by_email })}
-                        >
-                          <SelectTrigger className="h-7 text-xs w-28">
-                            <StatusBadge status={doc.status} />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="Draft">Draft</SelectItem>
-                            <SelectItem value="In Review">In Review</SelectItem>
-                            <SelectItem value="Approved">Approved</SelectItem>
-                            <SelectItem value="Superseded">Superseded</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </td>
-                      <td className="p-3">
-                        <a href={doc.file_url} target="_blank" rel="noopener noreferrer">
-                          <Button variant="ghost" size="icon" className="h-7 w-7">
-                            <ExternalLink className="w-3.5 h-3.5" />
-                          </Button>
-                        </a>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+        <>
+          {/* Project grid view */}
+          <PageHeader
+            title="Documents"
+            description="Select a project to view its documents"
+          />
+          <div className="relative mb-6">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+            <Input placeholder="Search projects..." value={search} onChange={e => setSearch(e.target.value)} className="pl-9 max-w-sm" />
+          </div>
+          {isLoading ? (
+            <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
+              {[1,2,3].map(i => (
+                <Card key={i} className="animate-pulse">
+                  <CardContent className="p-5 space-y-3">
+                    <div className="h-5 bg-muted rounded w-3/4" />
+                    <div className="h-4 bg-muted rounded w-1/2" />
+                    <div className="h-4 bg-muted rounded w-full" />
+                  </CardContent>
+                </Card>
+              ))}
             </div>
-          </CardContent>
-        </Card>
+          ) : projects.filter(p => p.name?.toLowerCase().includes(search.toLowerCase())).length === 0 ? (
+            <EmptyState icon={FolderOpen} title="No projects found" description="Projects will appear here once created" />
+          ) : (
+            <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
+              {projects.filter(p => p.name?.toLowerCase().includes(search.toLowerCase())).map(project => {
+                const docCount = documents.filter(d => d.project_id === project.id).length;
+                return (
+                  <Card
+                    key={project.id}
+                    className="hover:shadow-lg transition-all duration-300 hover:-translate-y-0.5 cursor-pointer h-full"
+                    onClick={() => setProjectFilter(project.id)}
+                  >
+                    <CardContent className="p-5">
+                      <div className="flex items-start justify-between mb-3">
+                        <h3 className="font-semibold text-foreground truncate pr-2">{project.name}</h3>
+                        <StatusBadge status={project.status} />
+                      </div>
+                      {project.description && (
+                        <p className="text-sm text-muted-foreground line-clamp-2 mb-3">{project.description}</p>
+                      )}
+                      <div className="flex items-center gap-4 text-xs text-muted-foreground">
+                        {project.start_date && (
+                          <span className="flex items-center gap-1">
+                            <Calendar className="w-3 h-3" />
+                            {format(new Date(project.start_date), 'MMM d, yyyy')}
+                          </span>
+                        )}
+                        <span className="flex items-center gap-1">
+                          <FileText className="w-3 h-3" />
+                          {docCount} {docCount === 1 ? 'document' : 'documents'}
+                        </span>
+                      </div>
+                    </CardContent>
+                  </Card>
+                );
+              })}
+            </div>
+          )}
+        </>
       )}
 
       {/* Upload Dialog */}
