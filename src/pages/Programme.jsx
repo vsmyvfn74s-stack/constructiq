@@ -268,7 +268,25 @@ export default function Programme() {
                   <Select value={pred.task_id} onValueChange={v => {
                     const preds = [...newTask.predecessors];
                     preds[idx] = {...preds[idx], task_id: v};
-                    setNewTask({...newTask, predecessors: preds});
+                    // Auto-set start date to day after predecessor ends (considering all predecessors + lag)
+                    const updatedPreds = [...newTask.predecessors];
+                    updatedPreds[idx] = {...updatedPreds[idx], task_id: v};
+                    const latestEnd = updatedPreds.reduce((latest, p) => {
+                      const predTask = tasks.find(t => t.id === p.task_id);
+                      if (!predTask?.end_date) return latest;
+                      const endPlusLag = new Date(predTask.end_date);
+                      endPlusLag.setDate(endPlusLag.getDate() + (p.lag_days || 0) + 1);
+                      return endPlusLag > latest ? endPlusLag : latest;
+                    }, null);
+                    if (latestEnd) {
+                      const newStart = latestEnd.toISOString().split('T')[0];
+                      const dur = newTask.duration || 1;
+                      const newEnd = new Date(latestEnd);
+                      newEnd.setDate(newEnd.getDate() + dur - 1);
+                      setNewTask({...newTask, predecessors: updatedPreds, start_date: newStart, end_date: newEnd.toISOString().split('T')[0]});
+                    } else {
+                      setNewTask({...newTask, predecessors: updatedPreds});
+                    }
                   }}>
                     <SelectTrigger className="flex-1 h-8 text-xs"><SelectValue placeholder="Select task" /></SelectTrigger>
                     <SelectContent>

@@ -172,7 +172,21 @@ export default function TaskEditPanel({ task, tasks = [], open, onOpenChange }) 
                     onValueChange={v => {
                       const updated = [...form.predecessors];
                       updated[idx] = { ...updated[idx], task_id: v === 'none' ? '' : v };
-                      setForm({ ...form, predecessors: updated });
+                      // Auto-set start date to day after latest predecessor end + lag
+                      const latestEnd = updated.reduce((latest, p) => {
+                        const predTask = tasks.find(t => t.id === p.task_id);
+                        if (!predTask?.end_date) return latest;
+                        const endPlusLag = new Date(predTask.end_date);
+                        endPlusLag.setDate(endPlusLag.getDate() + (p.lag_days || 0) + 1);
+                        return endPlusLag > latest ? endPlusLag : latest;
+                      }, null);
+                      if (latestEnd) {
+                        const newStart = latestEnd.toISOString().split('T')[0];
+                        const newEnd = recalcEnd(newStart, form.duration);
+                        setForm({ ...form, predecessors: updated, start_date: newStart, end_date: newEnd });
+                      } else {
+                        setForm({ ...form, predecessors: updated });
+                      }
                     }}
                   >
                     <SelectTrigger className="flex-1 h-8 text-xs">
