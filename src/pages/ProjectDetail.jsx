@@ -5,7 +5,7 @@ import { base44 } from '@/api/base44Client';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { ArrowLeft, Pencil, FileText, MessageSquareMore, Calendar } from 'lucide-react';
+import { ArrowLeft, Pencil, FileText, MessageSquareMore, Calendar, BarChart2 } from 'lucide-react';
 import PageHeader from '@/components/shared/PageHeader';
 import StatusBadge from '@/components/shared/StatusBadge';
 import TeamManager from '@/components/projects/TeamManager';
@@ -110,6 +110,9 @@ export default function ProjectDetail() {
           <TabsTrigger value="rfis" className="gap-1">
             <MessageSquareMore className="w-3.5 h-3.5" /> RFIs ({projectRfis.length})
           </TabsTrigger>
+          <TabsTrigger value="programme" className="gap-1">
+            <BarChart2 className="w-3.5 h-3.5" /> Programme
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="team">
@@ -169,6 +172,21 @@ export default function ProjectDetail() {
               ) : (
                 <p className="text-sm text-muted-foreground text-center py-4">No RFIs for this project</p>
               )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="programme">
+          <Card>
+            <CardContent className="p-6 text-center">
+              <BarChart2 className="w-10 h-10 text-muted-foreground mx-auto mb-3" />
+              <p className="font-medium mb-1">Project Programme</p>
+              <p className="text-sm text-muted-foreground mb-4">View and manage the full Gantt chart and task schedule for this project.</p>
+              <Link to={`/programme?project=${id}`}>
+                <Button className="gap-2">
+                  <BarChart2 className="w-4 h-4" /> Open Programme
+                </Button>
+              </Link>
             </CardContent>
           </Card>
         </TabsContent>

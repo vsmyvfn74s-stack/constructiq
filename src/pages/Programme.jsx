@@ -16,7 +16,9 @@ import TaskEditPanel from '@/components/programme/TaskEditPanel';
 export default function Programme() {
   const { user } = useAuth();
   const isAdmin = user?.role === 'admin';
-  const [selectedProjectId, setSelectedProjectId] = useState('all');
+  const urlParams = new URLSearchParams(window.location.search);
+  const projectFromUrl = urlParams.get('project') || 'all';
+  const [selectedProjectId, setSelectedProjectId] = useState(projectFromUrl);
   const [taskListCollapsed, setTaskListCollapsed] = useState(false);
   const [zoom, setZoom] = useState('week');
   const [selectedTask, setSelectedTask] = useState(null);
@@ -124,6 +126,7 @@ export default function Programme() {
               onTaskClick={setSelectedTask}
               onAddTask={() => setShowAddTask(true)}
               collapsed={false}
+              canEdit={isAdmin || user?.role === 'internal'}
             />
           </div>
         )}

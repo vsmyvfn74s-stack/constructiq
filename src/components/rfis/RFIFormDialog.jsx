@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import React, { useState, useEffect } from 'react';
+import { useMutation, useQueryClient, useQuery } from '@tanstack/react-query';
 import { base44 } from '@/api/base44Client';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
@@ -15,9 +15,17 @@ export default function RFIFormDialog({ open, onOpenChange, projects = [] }) {
   });
   const queryClient = useQueryClient();
 
+  // Get team members for the selected project
+  const selectedProject = projects.find(p => p.id === form.project_id);
+  const teamMembers = selectedProject?.team || [];
+
+  // Reset assignee when project changes
+  useEffect(() => {
+    setForm(f => ({ ...f, assigned_to_email: '', assigned_to_name: '' }));
+  }, [form.project_id]);
+
   const createMutation = useMutation({
     mutationFn: async (data) => {
-      // Get next RFI number
       const existing = await base44.entities.RFI.list('-number', 1);
       const nextNumber = existing.length > 0 ? (existing[0].number || 0) + 1 : 1;
       const rfi = await base44.entities.RFI.create({
@@ -27,7 +35,6 @@ export default function RFIFormDialog({ open, onOpenChange, projects = [] }) {
         responses: [],
         attachments: [],
       });
-      // Send assignment email
       if (data.assigned_to_email) {
         base44.integrations.Core.SendEmail({
           to: data.assigned_to_email,
@@ -43,6 +50,17 @@ export default function RFIFormDialog({ open, onOpenChange, projects = [] }) {
       setForm({ title: '', description: '', project_id: '', due_date: '', priority: 'Medium', assigned_to_email: '', assigned_to_name: '' });
     }
   });
+
+  const handleAssigneeChange = (value) => {
+    if (value === 'unassigned') {
+      setForm({ ...form, assigned_to_email: '', assigned_to_name: '' });
+      return;
+    }
+    const member = teamMembers.find(m => m.user_email === value);
+    if (member) {
+      setForm({ ...form, assigned_to_email: member.user_email, assigned_to_name: member.full_name });
+    }
+  };
 
   const handleSubmit = (e) => {
     e.preventDefault();
@@ -91,15 +109,43 @@ export default function RFIFormDialog({ open, onOpenChange, projects = [] }) {
             <Label>Due Date</Label>
             <Input type="date" value={form.due_date} onChange={e => setForm({...form, due_date: e.target.value})} />
           </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <Label>Assign To (Name)</Label>
-              <Input value={form.assigned_to_name} onChange={e => setForm({...form, assigned_to_name: e.target.value})} placeholder="Assignee name" />
-            </div>
-            <div>
-              <Label>Assign To (Email)</Label>
-              <Input type="email" value={form.assigned_to_email} onChange={e => setForm({...form, assigned_to_email: e.target.value})} placeholder="Assignee email" />
-            </div>
+          <div>
+            <Label>Assign To</Label>
+            {teamMembers.length > 0 ? (
+              <Select
+                value={form.assigned_to_email || 'unassigned'}
+                onValueChange={handleAssigneeChange}
+                disabled={!form.project_id}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Select team member" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="unassigned">— Unassigned —</SelectItem>
+                  {teamMembers.map(m => (
+                    <SelectItem key={m.user_email} value={m.user_email}>
+                      {m.full_name} — {m.role}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            ) : (
+              <div className="grid grid-cols-2 gap-3">
+                <Input
+                  value={form.assigned_to_name}
+                  onChange={e => setForm({...form, assigned_to_name: e.target.value})}
+                  placeholder={form.project_id ? 'No team members yet' : 'Select project first'}
+                  disabled={!!form.project_id && teamMembers.length === 0}
+                />
+                <Input
+                  type="email"
+                  value={form.assigned_to_email}
+                  onChange={e => setForm({...form, assigned_to_email: e.target.value})}
+                  placeholder="Assignee email"
+                  disabled={!!form.project_id && teamMembers.length === 0}
+                />
+              </div>
+            )}
           </div>
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
