@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { ChevronRight, ChevronDown, Plus } from 'lucide-react';
+import { ChevronRight, ChevronDown, Plus, Minus } from 'lucide-react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { base44 } from '@/api/base44Client';
 import { Button } from '@/components/ui/button';
@@ -19,12 +19,27 @@ export default function TaskList({ tasks, onTaskClick, onAddTask, collapsed, can
   const [expandedIds, setExpandedIds] = useState(new Set(tasks.filter(t => t.level === 0).map(t => t.id)));
   const [editingId, setEditingId] = useState(null);
   const [editValues, setEditValues] = useState({});
+  const [adjustingId, setAdjustingId] = useState(null);
   const queryClient = useQueryClient();
 
   const updateMutation = useMutation({
     mutationFn: ({ id, data }) => base44.entities.Task.update(id, data),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['tasks'] }),
   });
+
+  const adjustDays = async (task, delta) => {
+    const newDuration = Math.max(1, (task.duration || 1) + delta);
+    const newEnd = task.start_date
+      ? format(addDays(new Date(task.start_date), newDuration - 1), 'yyyy-MM-dd')
+      : task.end_date;
+    setAdjustingId(task.id);
+    await base44.entities.Task.update(task.id, { duration: newDuration, end_date: newEnd });
+    if (newEnd) {
+      await cascadeTaskDates(task.id, newEnd, tasks, (id, data) => base44.entities.Task.update(id, data));
+    }
+    queryClient.invalidateQueries({ queryKey: ['tasks'] });
+    setAdjustingId(null);
+  };
 
   if (collapsed) return null;
 
@@ -157,7 +172,7 @@ export default function TaskList({ tasks, onTaskClick, onAddTask, collapsed, can
           ) : (
             /* Normal display row */
             <>
-              <div className="flex-1 min-w-0 py-2">
+              <div className="flex-1 min-w-0 py-1.5">
                 <div className="flex items-center gap-1.5">
                   <span className="text-[10px] font-mono text-muted-foreground w-10 flex-shrink-0">{task.wbs || '—'}</span>
                   <span className={cn(
@@ -167,20 +182,41 @@ export default function TaskList({ tasks, onTaskClick, onAddTask, collapsed, can
                   )}>
                     {task.name}
                   </span>
-                  {canEdit && (
-                    <span className="opacity-0 group-hover:opacity-100 text-[9px] text-muted-foreground ml-1 flex-shrink-0">(dbl-click)</span>
-                  )}
+                </div>
+                <div className="flex items-center gap-2 mt-0.5 pl-11">
+                  <span className="text-[10px] text-muted-foreground">{task.start_date || '—'}</span>
+                  <span className="text-[10px] text-muted-foreground">→</span>
+                  <span className="text-[10px] text-muted-foreground">{task.end_date || '—'}</span>
                 </div>
               </div>
-              <div className="flex items-center gap-2 flex-shrink-0 text-xs text-muted-foreground pr-2">
-                <span className="w-14 text-right">{task.duration || 0}d</span>
-                <div className="flex items-center gap-1 w-20">
+              <div className="flex items-center gap-1.5 flex-shrink-0 pr-2">
+                {canEdit && (
+                  <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <button
+                      className="w-6 h-6 flex items-center justify-center rounded border border-border hover:bg-muted text-muted-foreground disabled:opacity-40"
+                      onClick={e => { e.stopPropagation(); adjustDays(task, -1); }}
+                      disabled={adjustingId === task.id}
+                      title="Remove 1 day"
+                    >
+                      <Minus className="w-3 h-3" />
+                    </button>
+                    <button
+                      className="w-6 h-6 flex items-center justify-center rounded border border-border hover:bg-muted text-muted-foreground disabled:opacity-40"
+                      onClick={e => { e.stopPropagation(); adjustDays(task, 1); }}
+                      disabled={adjustingId === task.id}
+                      title="Add 1 day"
+                    >
+                      <Plus className="w-3 h-3" />
+                    </button>
+                  </div>
+                )}
+                <span className="text-xs font-medium text-muted-foreground w-10 text-right">{task.duration || 0}d</span>
+                <div className="flex items-center gap-1 w-16">
                   <div className="w-full h-1.5 bg-muted rounded-full overflow-hidden">
                     <div className="h-full bg-primary rounded-full transition-all" style={{ width: `${percentComplete}%` }} />
                   </div>
                   <span className="text-[10px] w-7 flex-shrink-0">{percentComplete}%</span>
                 </div>
-                <span className="w-24 truncate">{task.assignee_name || '—'}</span>
               </div>
             </>
           )}
@@ -208,11 +244,10 @@ export default function TaskList({ tasks, onTaskClick, onAddTask, collapsed, can
         <div className="w-5" />
         <div className="flex-1 flex items-center gap-1.5">
           <span className="w-10">WBS</span>
-          <span>Name</span>
+          <span>Name / Dates</span>
         </div>
-        <span className="w-14 text-right pr-2">Dur.</span>
-        <span className="w-20">Progress</span>
-        <span className="w-24 pr-2">Assignee</span>
+        <span className="w-10 text-right">Dur.</span>
+        <span className="w-16 pr-2">Progress</span>
       </div>
 
       {/* Task rows */}
