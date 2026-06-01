@@ -143,12 +143,12 @@ export default function TaskList({ tasks, onTaskClick, onAddTask, collapsed, can
       <React.Fragment key={task.id}>
         <div
           className={cn(
-            "grid items-center hover:bg-muted/50 transition-colors border-l-3 group",
+            "grid items-center w-full h-full hover:bg-muted/50 transition-colors border-l-3 group px-2",
             levelColors[task.level || 0] || 'border-l-muted',
             isEditing ? 'bg-primary/5' : 'cursor-pointer',
             hasPendingUpdate && !isEditing && 'bg-amber-50/50 dark:bg-amber-950/20',
           )}
-          style={{ gridTemplateColumns: 'auto 24px 1fr 56px 70px 70px 56px 80px', paddingLeft: `${8 + depth * 16}px` }}
+          style={{ gridTemplateColumns: `auto 24px 1fr 56px 70px 70px 56px 80px`, paddingLeft: `${8 + depth * 16}px` }}
           onClick={isEditing ? undefined : () => onTaskClick(task)}
           onDoubleClick={(e) => canEdit && startEdit(task, e)}
         >
@@ -202,7 +202,7 @@ export default function TaskList({ tasks, onTaskClick, onAddTask, collapsed, can
             <>
               {/* Name column */}
               <span className={cn(
-                "text-xs truncate",
+                "text-xs truncate px-1",
                 task.level === 0 && "font-bold text-foreground",
                 task.level === 1 && "font-semibold",
                 isSummary && "italic",
@@ -211,14 +211,14 @@ export default function TaskList({ tasks, onTaskClick, onAddTask, collapsed, can
               </span>
               
               {/* WBS column */}
-              <span className="text-[10px] font-mono text-muted-foreground text-center">{task.wbs || '—'}</span>
+              <span className="text-[10px] font-mono text-muted-foreground text-center flex items-center justify-center">{task.wbs || '—'}</span>
               
               {/* Duration column */}
-              <div className="flex items-center justify-center gap-1">
+              <div className="flex items-center justify-center gap-0.5 h-full">
                 {canEdit && !isSummary && (
-                  <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                  <>
                     <button
-                      className="w-4 h-4 flex items-center justify-center rounded border border-border hover:bg-muted text-muted-foreground disabled:opacity-40"
+                      className="w-4 h-4 flex items-center justify-center rounded border border-border hover:bg-muted text-muted-foreground disabled:opacity-40 opacity-0 group-hover:opacity-100 transition-opacity"
                       onClick={e => { e.stopPropagation(); adjustDays(task, -1); }}
                       disabled={adjustingId === task.id}
                       title="Remove 1 day"
@@ -227,26 +227,26 @@ export default function TaskList({ tasks, onTaskClick, onAddTask, collapsed, can
                     </button>
                     <span className="text-[10px] font-mono w-6 text-center">{resolved.duration}</span>
                     <button
-                      className="w-4 h-4 flex items-center justify-center rounded border border-border hover:bg-muted text-muted-foreground disabled:opacity-40"
+                      className="w-4 h-4 flex items-center justify-center rounded border border-border hover:bg-muted text-muted-foreground disabled:opacity-40 opacity-0 group-hover:opacity-100 transition-opacity"
                       onClick={e => { e.stopPropagation(); adjustDays(task, 1); }}
                       disabled={adjustingId === task.id}
                       title="Add 1 day"
                     >
                       <Plus className="w-2 h-2" />
                     </button>
-                  </div>
+                  </>
                 )}
-                {(!canEdit || isSummary) && <span className="text-[10px] font-mono">{resolved.duration}d</span>}
+                {(!canEdit || isSummary) && <span className="text-[10px] font-mono text-center w-full">{resolved.duration}d</span>}
               </div>
               
               {/* Start date column */}
-              <span className="text-[10px] font-mono text-muted-foreground text-center">{resolved.start}</span>
+              <span className="text-[10px] font-mono text-muted-foreground text-center flex items-center justify-center h-full">{resolved.start}</span>
               
               {/* End date column */}
-              <span className="text-[10px] font-mono text-muted-foreground text-center">{resolved.end}</span>
+              <span className="text-[10px] font-mono text-muted-foreground text-center flex items-center justify-center h-full">{resolved.end}</span>
               
               {/* Completion column */}
-              <div className="flex items-center justify-center gap-1 px-1">
+              <div className="flex items-center justify-center gap-1 px-1 h-full">
                 <div className="w-8 h-1.5 bg-muted rounded-full overflow-hidden flex-shrink-0">
                   <div className="h-full bg-primary rounded-full" style={{ width: `${percentComplete}%` }} />
                 </div>
@@ -273,10 +273,10 @@ export default function TaskList({ tasks, onTaskClick, onAddTask, collapsed, can
       </div>
 
       {/* Column headers */}
-      <div className="grid items-center border-b text-[10px] font-medium text-muted-foreground uppercase tracking-wider bg-muted/30 px-2 py-1.5" style={{ gridTemplateColumns: 'auto 24px 1fr 56px 70px 70px 56px 80px' }}>
+      <div className="grid items-center border-b text-[10px] font-medium text-muted-foreground uppercase tracking-wider bg-muted/30 px-2 py-1.5 gap-0" style={{ gridTemplateColumns: 'auto 24px 1fr 56px 70px 70px 56px 80px' }}>
         <div className="w-5" />
         <div className="w-5" />
-        <span className="truncate">Name</span>
+        <span className="truncate px-1">Name</span>
         <span className="text-center">WBS</span>
         <span className="text-center">Duration</span>
         <span className="text-center">Start</span>
@@ -287,7 +287,7 @@ export default function TaskList({ tasks, onTaskClick, onAddTask, collapsed, can
       {/* Task rows with fixed height for alignment with Gantt */}
       <div className="flex-1 overflow-y-auto">
         {flatTasksArray.map(task => (
-          <div key={task.id} style={{ height: ROW_HEIGHT }} className="flex items-center">
+          <div key={task.id} style={{ height: ROW_HEIGHT }} className="w-full">
             {renderTask(task, (task.level || 0))}
           </div>
         ))}
