@@ -52,6 +52,9 @@ export default function TaskList({ tasks, onTaskClick, onAddTask, collapsed, can
     };
   };
 
+  // Use the same flattening logic as GanttChart for alignment
+  const flatTasksArray = useMemo(() => flattenTasks(tasks), [tasks]);
+
   const adjustDays = async (task, delta) => {
     const newDuration = Math.max(1, (task.duration || 1) + delta);
     const newEnd = task.start_date
@@ -113,9 +116,6 @@ export default function TaskList({ tasks, onTaskClick, onAddTask, collapsed, can
     }
     setEditValues(updated);
   };
-
-  // Use the same flattening logic as GanttChart for alignment
-  const flatTasksArray = useMemo(() => flattenTasks(tasks), [tasks]);
 
   const renderTask = (task, depth = 0) => {
     const children = tasks.filter(t => t.parent_id === task.id).sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));

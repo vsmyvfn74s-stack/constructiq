@@ -7,7 +7,16 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { PanelLeftClose, PanelLeftOpen, Upload, Printer, ZoomIn, ZoomOut } from 'lucide-react';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
+import { PanelLeftClose, PanelLeftOpen, Upload, Printer, ZoomIn, ZoomOut, Trash2 } from 'lucide-react';
 import PageHeader from '@/components/shared/PageHeader';
 import TaskList from '@/components/programme/TaskList';
 import GanttChart from '@/components/programme/GanttChart';
@@ -25,6 +34,8 @@ export default function Programme() {
   const [showUploadMPP, setShowUploadMPP] = useState(false);
   const [mppFile, setMppFile] = useState(null);
   const [uploading, setUploading] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const queryClient = useQueryClient();
 
   const { data: allProjectsRaw = [] } = useQuery({
@@ -117,6 +128,24 @@ export default function Programme() {
     }
   };
 
+  const handleDeleteAllTasks = async () => {
+    if (!selectedProjectId || selectedProjectId === 'all') return;
+    setDeleting(true);
+    
+    try {
+      const projectTasks = tasks;
+      for (const task of projectTasks) {
+        await base44.entities.Task.delete(task.id);
+      }
+      queryClient.invalidateQueries({ queryKey: ['tasks'] });
+      setShowDeleteConfirm(false);
+    } catch (error) {
+      console.error('Error deleting tasks:', error);
+    } finally {
+      setDeleting(false);
+    }
+  };
+
   const handlePrint = () => window.print();
 
   const cycleZoom = (direction) => {
@@ -153,6 +182,15 @@ export default function Programme() {
             </Button>
             <Button onClick={() => setShowUploadMPP(true)} className="gap-2">
               <Upload className="w-4 h-4" /> Upload MPP File
+            </Button>
+            <Button 
+              variant="destructive" 
+              size="icon"
+              onClick={() => setShowDeleteConfirm(true)}
+              disabled={!selectedProjectId || selectedProjectId === 'all' || tasks.length === 0}
+              title="Delete all tasks in this project"
+            >
+              <Trash2 className="w-4 h-4" />
             </Button>
           </div>
         }
@@ -192,6 +230,26 @@ export default function Programme() {
         open={!!selectedTask}
         onOpenChange={(open) => { if (!open) setSelectedTask(null); }}
       />
+
+      {/* Delete all tasks confirmation */}
+      <AlertDialog open={showDeleteConfirm} onOpenChange={setShowDeleteConfirm}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete all tasks?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will permanently delete all {tasks.length} task{tasks.length !== 1 ? 's' : ''} in this project. This cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogAction
+            onClick={handleDeleteAllTasks}
+            disabled={deleting}
+            className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+          >
+            {deleting ? 'Deleting...' : 'Delete All'}
+          </AlertDialogAction>
+          <AlertDialogCancel disabled={deleting}>Cancel</AlertDialogCancel>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* Upload MPP file dialog */}
       <Dialog open={showUploadMPP} onOpenChange={setShowUploadMPP}>
