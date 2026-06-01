@@ -22,6 +22,17 @@ function getFileType(name) {
 
 const UNFILED = '__unfiled__';
 
+const DEFAULT_FOLDERS = [
+  'Architectural Plans',
+  'Engineering Drawings',
+  'Geotech Reports',
+  'Photos',
+  'Sub Contractor Uploads',
+];
+
+const INTERNAL_ROLES = ['Architect', 'Internal Project Manager', 'Site Manager', 'Quantity Surveyor'];
+const SUBCONTRACTOR_FOLDER = 'Sub Contractor Uploads';
+
 export default function ProjectDocsPanel({ project, docs = [] }) {
   const { user } = useAuth();
   const [showUpload, setShowUpload] = useState(false);
@@ -30,11 +41,18 @@ export default function ProjectDocsPanel({ project, docs = [] }) {
   const [showNewFolder, setShowNewFolder] = useState(false);
   const [newFolderName, setNewFolderName] = useState('');
   const [collapsedFolders, setCollapsedFolders] = useState({});
-  const [emptyFolders, setEmptyFolders] = useState([]);
+  const [extraFolders, setExtraFolders] = useState([]);
   const queryClient = useQueryClient();
 
-  // Derive folder list from docs + locally created empty folders
-  const folders = [...new Set([...docs.map(d => d.folder).filter(Boolean), ...emptyFolders])].sort();
+  // Determine user's role on this project
+  const teamMember = project?.team?.find(m => m.user_email === user?.email);
+  const isInternal = user?.role === 'admin' || INTERNAL_ROLES.includes(teamMember?.role);
+  // External users can only upload to Sub Contractor Uploads
+  const allowedFolders = isInternal ? null : [SUBCONTRACTOR_FOLDER]; // null = all folders
+
+  // Derive folder list: default folders + any from docs + any locally created extras
+  const docFolders = docs.map(d => d.folder).filter(Boolean);
+  const folders = [...new Set([...DEFAULT_FOLDERS, ...docFolders, ...extraFolders])];
 
   const invalidate = () => {
     queryClient.invalidateQueries({ queryKey: ['documents', project.id] });
@@ -82,6 +100,7 @@ export default function ProjectDocsPanel({ project, docs = [] }) {
   };
 
   const handleDragEnd = (result) => {
+    if (!isInternal) return;
     if (!result.destination) return;
     const { draggableId, destination } = result;
     const destFolder = destination.droppableId === UNFILED ? null : destination.droppableId;
@@ -111,8 +130,8 @@ export default function ProjectDocsPanel({ project, docs = [] }) {
           {...provided.draggableProps}
           className={`flex items-center gap-2 px-3 py-2 text-sm border-b last:border-b-0 bg-card transition-colors ${snapshot.isDragging ? 'shadow-lg opacity-80' : 'hover:bg-muted/30'}`}
         >
-          <span {...provided.dragHandleProps} className="text-muted-foreground/40 hover:text-muted-foreground cursor-grab active:cursor-grabbing flex-shrink-0">
-            <GripVertical className="w-4 h-4" />
+          <span {...(isInternal ? provided.dragHandleProps : {})} className={`flex-shrink-0 ${isInternal ? 'text-muted-foreground/40 hover:text-muted-foreground cursor-grab active:cursor-grabbing' : 'invisible w-4'}`}>
+            {isInternal && <GripVertical className="w-4 h-4" />}
           </span>
           <FileText className="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" />
           <a href={doc.file_url} target="_blank" rel="noopener noreferrer"
@@ -195,10 +214,15 @@ export default function ProjectDocsPanel({ project, docs = [] }) {
       <div className="flex items-center justify-between gap-2">
         <p className="text-sm text-muted-foreground">{docs.length} document{docs.length !== 1 ? 's' : ''}</p>
         <div className="flex items-center gap-2">
-          <Button size="sm" variant="outline" className="gap-1.5 h-8 text-xs" onClick={() => setShowNewFolder(true)}>
-            <FolderPlus className="w-3 h-3" /> New Folder
-          </Button>
-          <Button size="sm" className="gap-1.5 h-8 text-xs" onClick={() => setShowUpload(true)}>
+          {isInternal && (
+            <Button size="sm" variant="outline" className="gap-1.5 h-8 text-xs" onClick={() => setShowNewFolder(true)}>
+              <FolderPlus className="w-3 h-3" /> New Folder
+            </Button>
+          )}
+          <Button size="sm" className="gap-1.5 h-8 text-xs" onClick={() => {
+            setUploadForm({ name: '', file: null, folder: allowedFolders ? allowedFolders[0] : '' });
+            setShowUpload(true);
+          }}>
             <Upload className="w-3 h-3" /> Upload
           </Button>
         </div>
@@ -216,7 +240,7 @@ export default function ProjectDocsPanel({ project, docs = [] }) {
             onChange={e => setNewFolderName(e.target.value)}
             onKeyDown={e => {
               if (e.key === 'Enter' && newFolderName.trim()) {
-                setEmptyFolders(prev => [...new Set([...prev, newFolderName.trim()])]);
+                setExtraFolders(prev => [...new Set([...prev, newFolderName.trim()])]);
                 setShowNewFolder(false);
                 setNewFolderName('');
               }
@@ -225,9 +249,7 @@ export default function ProjectDocsPanel({ project, docs = [] }) {
           />
           <Button size="sm" className="h-7 text-xs" onClick={() => {
             if (newFolderName.trim()) {
-              // Add to folders list by updating a doc — or just track locally
-              // We push it into an empty-folders state so it shows up
-              setEmptyFolders(prev => [...new Set([...prev, newFolderName.trim()])]);
+              setExtraFolders(prev => [...new Set([...prev, newFolderName.trim()])]);
             }
             setShowNewFolder(false);
             setNewFolderName('');
@@ -266,8 +288,8 @@ export default function ProjectDocsPanel({ project, docs = [] }) {
               <Select value={uploadForm.folder} onValueChange={v => setUploadForm({ ...uploadForm, folder: v === '__none__' ? '' : v })}>
                 <SelectTrigger><SelectValue placeholder="No folder (Unfiled)" /></SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="__none__">No folder (Unfiled)</SelectItem>
-                  {folders.map(f => <SelectItem key={f} value={f}>{f}</SelectItem>)}
+                  {isInternal && <SelectItem value="__none__">No folder (Unfiled)</SelectItem>}
+                  {(allowedFolders || folders).map(f => <SelectItem key={f} value={f}>{f}</SelectItem>)}
                 </SelectContent>
               </Select>
             </div>
