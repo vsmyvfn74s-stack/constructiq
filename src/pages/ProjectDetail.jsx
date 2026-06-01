@@ -10,6 +10,7 @@ import PageHeader from '@/components/shared/PageHeader';
 import StatusBadge from '@/components/shared/StatusBadge';
 import TeamManager from '@/components/projects/TeamManager';
 import ProjectFormDialog from '@/components/projects/ProjectFormDialog';
+import ProjectRFIPanel from '@/components/rfis/ProjectRFIPanel';
 import { format } from 'date-fns';
 
 export default function ProjectDetail() {
@@ -144,36 +145,7 @@ export default function ProjectDetail() {
         </TabsContent>
 
         <TabsContent value="rfis">
-          <Card>
-            <CardContent className="p-4">
-              {projectRfis.length > 0 ? (
-                <div className="space-y-2">
-                  {projectRfis.map(rfi => (
-                    <Link key={rfi.id} to={`/rfis/${rfi.id}`} className="flex items-center justify-between p-3 bg-muted/50 rounded-lg hover:bg-muted transition-colors">
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <span className="text-xs font-mono text-muted-foreground">#{rfi.number}</span>
-                          <span className="text-sm font-medium">{rfi.title}</span>
-                        </div>
-                        <div className="flex items-center gap-2 mt-0.5">
-                          <StatusBadge status={rfi.priority} />
-                          {rfi.due_date && (
-                            <span className="text-xs text-muted-foreground flex items-center gap-1">
-                              <Calendar className="w-3 h-3" />
-                              {format(new Date(rfi.due_date), 'MMM d')}
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                      <StatusBadge status={rfi.status} />
-                    </Link>
-                  ))}
-                </div>
-              ) : (
-                <p className="text-sm text-muted-foreground text-center py-4">No RFIs for this project</p>
-              )}
-            </CardContent>
-          </Card>
+          <ProjectRFIPanel project={project} rfis={projectRfis} />
         </TabsContent>
 
         <TabsContent value="programme">
