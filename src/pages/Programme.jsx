@@ -96,11 +96,60 @@ export default function Programme() {
         parsedTasks = await parseExcelCSV(mppFile, selectedProjectId);
       }
 
-      if (parsedTasks.length > 0) {
-        await base44.entities.Task.bulkCreate(parsedTasks);
-        queryClient.invalidateQueries({ queryKey: ['tasks'] });
+      if (parsedTasks.length === 0) {
+        setShowUploadMPP(false);
+        setMppFile(null);
+        return;
       }
 
+      // ── Pass 1: create tasks without predecessor links ──────────────────────
+      // Strip temp fields before saving
+      const tasksToCreate = parsedTasks.map(({ _mspUid, _predecessorLinks, ...t }) => t);
+      const created = await base44.entities.Task.bulkCreate(tasksToCreate);
+
+      // ── Pass 2: resolve UID → DB ID and write predecessor links ────────────
+      // Build map: mspUid → created DB id
+      // bulkCreate returns an array in the same order as input
+      const uidToDbId = new Map();
+      parsedTasks.forEach((pt, i) => {
+        if (pt._mspUid != null && created[i]?.id) {
+          uidToDbId.set(pt._mspUid, created[i].id);
+        }
+      });
+
+      // Find tasks that have predecessor links to write
+      const updates = [];
+      parsedTasks.forEach((pt, i) => {
+        if (!pt._predecessorLinks?.length) return;
+        const dbId = created[i]?.id;
+        if (!dbId) return;
+
+        const predecessors = pt._predecessorLinks
+          .map(link => {
+            const predDbId = uidToDbId.get(link._predUid);
+            if (!predDbId) return null;
+            return {
+              predecessor_id: predDbId,
+              task_id: predDbId,
+              type: link.type,
+              lag_hours: link.lag_hours,
+              lag_days: Math.round(link.lag_hours / 8),
+              is_elapsed: link.is_elapsed,
+            };
+          })
+          .filter(Boolean);
+
+        if (predecessors.length > 0) {
+          updates.push({ id: dbId, predecessors });
+        }
+      });
+
+      // Apply predecessor updates in parallel batches
+      for (const update of updates) {
+        await base44.entities.Task.update(update.id, { predecessors: update.predecessors });
+      }
+
+      queryClient.invalidateQueries({ queryKey: ['tasks'] });
       setShowUploadMPP(false);
       setMppFile(null);
     } catch (error) {
@@ -283,8 +332,8 @@ export default function Programme() {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => { setShowUploadMPP(false); setMppFile(null); }}>Cancel</Button>
-            <Button onClick={handleMPPUpload} disabled={!mppFile || uploading}>
-              {uploading ? 'Importing...' : 'Import'}
+            <Button onClick={handleMPPUpload} disabled={!mppFile || uploading || !selectedProjectId || selectedProjectId === 'all'}>
+              {uploading ? 'Importing & linking...' : 'Import'}
             </Button>
           </DialogFooter>
         </DialogContent>

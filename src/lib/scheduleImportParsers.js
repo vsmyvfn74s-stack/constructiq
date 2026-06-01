@@ -27,6 +27,8 @@ const parseDuration = (durationStr) => {
 };
 
 // ─── MS Project XML ────────────────────────────────────────────────────────────
+// Returns tasks with _mspUid (integer) and _predecessorLinks (raw UID-based deps).
+// The caller must do a second pass to resolve UIDs → real DB IDs after bulkCreate.
 export const parseXML = (text, projectId) => {
   const parser = new DOMParser();
   const xml = parser.parseFromString(text, 'text/xml');
@@ -37,6 +39,23 @@ export const parseXML = (text, projectId) => {
     const uid = get('UID');
     const name = get('Name');
     if (!name || uid === '0') return null;
+
+    // Read all PredecessorLink nodes
+    const predLinks = Array.from(node.querySelectorAll('PredecessorLink')).map(pl => {
+      const predUid = pl.querySelector('PredecessorUID')?.textContent?.trim();
+      if (!predUid || predUid === '0') return null;
+      const typeMap = { '0': 'FF', '1': 'FS', '2': 'SF', '3': 'SS' };
+      const rawType = pl.querySelector('Type')?.textContent?.trim();
+      const lagText = pl.querySelector('LinkLag')?.textContent?.trim();
+      // MS Project stores lag in 1/10 minutes; convert to hours
+      const lagHours = lagText ? Math.round(parseInt(lagText) / 600) : 0;
+      return {
+        _predUid: parseInt(predUid),
+        type: typeMap[rawType] || 'FS',
+        lag_hours: lagHours,
+        is_elapsed: false,
+      };
+    }).filter(Boolean);
 
     return {
       name,
@@ -50,6 +69,9 @@ export const parseXML = (text, projectId) => {
       sort_order: parseInt(get('ID')) || 0,
       project_id: projectId,
       predecessors: [],
+      // Temp fields stripped before save — used for second-pass linking
+      _mspUid: parseInt(uid),
+      _predecessorLinks: predLinks,
     };
   }).filter(Boolean);
 };
