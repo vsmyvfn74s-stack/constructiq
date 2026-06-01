@@ -12,12 +12,12 @@ import { computeCascade } from './schedulingEngine';
 export async function cascadeTaskDates(changedTaskId, allTasks, updateFn, projectStartDate) {
   const patches = computeCascade(changedTaskId, allTasks, projectStartDate);
 
-  // Apply all patches in parallel
-  await Promise.all(patches.map(patch =>
-    updateFn(patch.id, {
+  // Apply patches sequentially to avoid rate limit errors
+  for (const patch of patches) {
+    await updateFn(patch.id, {
       start_date: patch.start_date,
       end_date: patch.end_date,
       duration: patch.duration,
-    })
-  ));
+    });
+  }
 }
