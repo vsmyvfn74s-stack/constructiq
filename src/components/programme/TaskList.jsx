@@ -8,6 +8,9 @@ import { cn } from '@/lib/utils';
 import { addDays, differenceInCalendarDays, format } from 'date-fns';
 import { cascadeTaskDates } from '@/lib/cascadeTaskDates';
 import { runScheduleEngine } from '@/lib/schedulingEngine';
+import { flattenTasks } from '@/lib/flattenTasks';
+
+export const ROW_HEIGHT = 40;
 
 const levelColors = [
   'border-l-primary',
@@ -111,11 +114,11 @@ export default function TaskList({ tasks, onTaskClick, onAddTask, collapsed, can
     setEditValues(updated);
   };
 
-  const rootTasks = tasks.filter(t => !t.parent_id).sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
-  const getChildren = (parentId) => tasks.filter(t => t.parent_id === parentId).sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
+  // Use the same flattening logic as GanttChart for alignment
+  const flatTasksArray = useMemo(() => flattenTasks(tasks), [tasks]);
 
   const renderTask = (task, depth = 0) => {
-    const children = getChildren(task.id);
+    const children = tasks.filter(t => t.parent_id === task.id).sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
     const hasChildren = children.length > 0;
     const isExpanded = expandedIds.has(task.id);
     const isEditing = editingId === task.id;
@@ -283,9 +286,13 @@ export default function TaskList({ tasks, onTaskClick, onAddTask, collapsed, can
         <span className="w-20 pr-2 text-right">Progress</span>
       </div>
 
-      {/* Task rows */}
+      {/* Task rows with fixed height for alignment with Gantt */}
       <div className="flex-1 overflow-y-auto">
-        {rootTasks.map(task => renderTask(task))}
+        {flatTasksArray.map(task => (
+          <div key={task.id} style={{ height: ROW_HEIGHT }} className="flex items-center">
+            {renderTask(task, (task.level || 0))}
+          </div>
+        ))}
         {tasks.length === 0 && (
           <div className="text-center py-8 text-sm text-muted-foreground">No tasks yet</div>
         )}

@@ -2,6 +2,7 @@ import React, { useMemo } from 'react';
 import { differenceInDays, addDays, format, eachWeekOfInterval, eachDayOfInterval, isToday, isWeekend } from 'date-fns';
 import { cn } from '@/lib/utils';
 import { runScheduleEngine } from '@/lib/schedulingEngine';
+import { flattenTasks } from '@/lib/flattenTasks';
 
 const levelColors = [
   'bg-primary',
@@ -17,7 +18,8 @@ const DEP_COLORS = {
   SF: 'hsl(280 55% 55%)',
 };
 
-const ROW_H = 40;
+import { ROW_HEIGHT } from './TaskList';
+const ROW_H = ROW_HEIGHT;
 
 export default function GanttChart({ tasks, zoom = 'week' }) {
   const dayWidth = zoom === 'day' ? 40 : zoom === 'week' ? 18 : 5;
@@ -79,16 +81,7 @@ export default function GanttChart({ tasks, zoom = 'week' }) {
   }, [tasks, scheduledDates, zoom]);
 
   // Flatten tasks in display order (WBS tree walk)
-  const flatTasks = useMemo(() => {
-    const result = [];
-    const rootTasks = tasks.filter(t => !t.parent_id).sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
-    const addTask = (task) => {
-      result.push(task);
-      tasks.filter(t => t.parent_id === task.id).sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0)).forEach(addTask);
-    };
-    rootTasks.forEach(addTask);
-    return result;
-  }, [tasks]);
+  const flatTasks = useMemo(() => flattenTasks(tasks), [tasks]);
 
   const getBar = (task) => {
     const resolved = scheduledDates.get(task.id);
