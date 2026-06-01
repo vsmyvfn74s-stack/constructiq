@@ -144,17 +144,19 @@ export default function RFIFormDialog({ open, onOpenChange, projects = [] }) {
                 {teamMembers.map(m => {
                   const isChecked = !!selectedEmails.find(s => s.email === m.user_email);
                   return (
-                    <label
+                    <div
                       key={m.user_email}
                       className="flex items-center gap-2 px-1 py-1 rounded hover:bg-muted/50 cursor-pointer"
+                      onClick={() => toggleMember(m)}
                     >
                       <Checkbox
                         checked={isChecked}
                         onCheckedChange={() => toggleMember(m)}
+                        onClick={e => e.stopPropagation()}
                       />
                       <span className="text-sm flex-1">{m.full_name}</span>
                       <span className="text-xs text-muted-foreground">{m.role}</span>
-                    </label>
+                    </div>
                   );
                 })}
               </div>
