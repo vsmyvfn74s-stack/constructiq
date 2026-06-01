@@ -240,10 +240,10 @@ export default function TaskList({ tasks, onTaskClick, onAddTask, collapsed, can
               </div>
               
               {/* Start date column */}
-              <span className="text-[10px] font-mono text-muted-foreground text-center flex items-center justify-center h-full">{resolved.start}</span>
+              <span className="text-[10px] font-mono text-muted-foreground text-center flex items-center justify-center h-full">{resolved.start !== '—' ? format(new Date(resolved.start), 'dd/MM/yy') : '—'}</span>
               
               {/* End date column */}
-              <span className="text-[10px] font-mono text-muted-foreground text-center flex items-center justify-center h-full">{resolved.end}</span>
+              <span className="text-[10px] font-mono text-muted-foreground text-center flex items-center justify-center h-full">{resolved.end !== '—' ? format(new Date(resolved.end), 'dd/MM/yy') : '—'}</span>
               
               {/* Completion column */}
               <div className="flex items-center justify-center gap-1 px-1 h-full">
