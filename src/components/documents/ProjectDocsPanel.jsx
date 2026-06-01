@@ -30,10 +30,11 @@ export default function ProjectDocsPanel({ project, docs = [] }) {
   const [showNewFolder, setShowNewFolder] = useState(false);
   const [newFolderName, setNewFolderName] = useState('');
   const [collapsedFolders, setCollapsedFolders] = useState({});
+  const [emptyFolders, setEmptyFolders] = useState([]);
   const queryClient = useQueryClient();
 
-  // Derive folder list from docs
-  const folders = [...new Set(docs.map(d => d.folder).filter(Boolean))].sort();
+  // Derive folder list from docs + locally created empty folders
+  const folders = [...new Set([...docs.map(d => d.folder).filter(Boolean), ...emptyFolders])].sort();
 
   const invalidate = () => {
     queryClient.invalidateQueries({ queryKey: ['documents', project.id] });
@@ -215,12 +216,7 @@ export default function ProjectDocsPanel({ project, docs = [] }) {
             onChange={e => setNewFolderName(e.target.value)}
             onKeyDown={e => {
               if (e.key === 'Enter' && newFolderName.trim()) {
-                // Folder is created implicitly when a doc is moved into it.
-                // We need to persist it by creating a placeholder — instead we just
-                // track it locally so user can upload into it immediately.
-                // We'll add it to an "empty folders" list.
-                setCollapsedFolders(prev => ({ ...prev }));
-                // Store as a new empty folder by uploading nothing — just close & add to folders list via state
+                setEmptyFolders(prev => [...new Set([...prev, newFolderName.trim()])]);
                 setShowNewFolder(false);
                 setNewFolderName('');
               }
@@ -229,8 +225,9 @@ export default function ProjectDocsPanel({ project, docs = [] }) {
           />
           <Button size="sm" className="h-7 text-xs" onClick={() => {
             if (newFolderName.trim()) {
-              setUploadForm(f => ({ ...f, folder: newFolderName.trim() }));
-              setShowUpload(true);
+              // Add to folders list by updating a doc — or just track locally
+              // We push it into an empty-folders state so it shows up
+              setEmptyFolders(prev => [...new Set([...prev, newFolderName.trim()])]);
             }
             setShowNewFolder(false);
             setNewFolderName('');
