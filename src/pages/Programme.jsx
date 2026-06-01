@@ -57,34 +57,30 @@ export default function Programme() {
     : accessibleTasks.filter(t => t.project_id === selectedProjectId);
 
   const handleMPPUpload = async () => {
-    if (!mppFile) return;
+    if (!mppFile || !selectedProjectId || selectedProjectId === 'all') return;
     setUploading(true);
     
     try {
-      // Upload the file and extract data from it
+      // Use LLM to extract task data from MPP file
       const { file_url } = await base44.integrations.Core.UploadFile({ file: mppFile });
       
-      // Extract project data from MPP file
-      const extractedData = await base44.integrations.Core.ExtractDataFromUploadedFile({
-        file_url,
-        json_schema: {
+      const result = await base44.integrations.Core.InvokeLLM({
+        prompt: `Extract task information from this Microsoft Project (.mpp) file. Return a JSON array of tasks with: name, level (0-3), start_date (YYYY-MM-DD), end_date (YYYY-MM-DD), duration (days), wbs (string).`,
+        file_urls: [file_url],
+        response_json_schema: {
           type: 'object',
           properties: {
-            projectName: { type: 'string' },
-            startDate: { type: 'string' },
-            endDate: { type: 'string' },
             tasks: {
               type: 'array',
               items: {
                 type: 'object',
                 properties: {
                   name: { type: 'string' },
-                  wbs: { type: 'string' },
                   level: { type: 'number' },
-                  startDate: { type: 'string' },
-                  endDate: { type: 'string' },
+                  start_date: { type: 'string' },
+                  end_date: { type: 'string' },
                   duration: { type: 'number' },
-                  predecessors: { type: 'array' }
+                  wbs: { type: 'string' }
                 }
               }
             }
@@ -92,22 +88,20 @@ export default function Programme() {
         }
       });
       
-      if (extractedData?.output?.tasks) {
-        // Create or get the project
-        let projectId = selectedProjectId !== 'all' ? selectedProjectId : projects[0]?.id;
+      if (result?.tasks?.length > 0) {
+        const projectId = selectedProjectId;
         
-        // Bulk create tasks from MPP data
-        for (const task of extractedData.output.tasks) {
+        for (const task of result.tasks) {
           await base44.entities.Task.create({
-            name: task.name,
+            name: task.name || 'Task',
             project_id: projectId,
             wbs: task.wbs || '',
-            level: task.level || 2,
-            start_date: task.startDate,
-            end_date: task.endDate,
+            level: task.level ?? 2,
+            start_date: task.start_date,
+            end_date: task.end_date,
             duration: task.duration || 1,
             percent_complete: 0,
-            predecessors: task.predecessors || [],
+            predecessors: [],
           });
         }
         
