@@ -11,6 +11,7 @@ import StatusBadge from '@/components/shared/StatusBadge';
 import TeamManager from '@/components/projects/TeamManager';
 import ProjectFormDialog from '@/components/projects/ProjectFormDialog';
 import ProjectRFIPanel from '@/components/rfis/ProjectRFIPanel';
+import ProjectDocsPanel from '@/components/documents/ProjectDocsPanel';
 import { format } from 'date-fns';
 
 export default function ProjectDetail() {
@@ -22,7 +23,7 @@ export default function ProjectDetail() {
     queryFn: () => base44.entities.Project.list().then(all => all.find(p => p.id === id)),
   });
 
-  const { data: projectDocs = [] } = useQuery({
+  const { data: projectDocs = [], refetch: refetchDocs } = useQuery({
     queryKey: ['documents', id],
     queryFn: () => base44.entities.Document.filter({ project_id: id }, '-created_date', 50),
   });
@@ -121,27 +122,7 @@ export default function ProjectDetail() {
         </TabsContent>
 
         <TabsContent value="documents">
-          <Card>
-            <CardContent className="p-4">
-              {projectDocs.length > 0 ? (
-                <div className="space-y-2">
-                  {projectDocs.map(doc => (
-                    <div key={doc.id} className="flex items-center justify-between p-3 bg-muted/50 rounded-lg">
-                      <div>
-                        <a href={doc.file_url} target="_blank" rel="noopener noreferrer" className="text-sm font-medium text-primary hover:underline">
-                          {doc.name}
-                        </a>
-                        <p className="text-xs text-muted-foreground mt-0.5">{doc.file_type} · {doc.uploaded_by_name}</p>
-                      </div>
-                      <StatusBadge status={doc.status} />
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <p className="text-sm text-muted-foreground text-center py-4">No documents attached</p>
-              )}
-            </CardContent>
-          </Card>
+          <ProjectDocsPanel project={project} docs={projectDocs} />
         </TabsContent>
 
         <TabsContent value="rfis">
