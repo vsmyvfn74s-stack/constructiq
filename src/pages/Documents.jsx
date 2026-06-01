@@ -26,6 +26,7 @@ export default function Documents() {
   const { user } = useAuth();
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
+  const [projectFilter, setProjectFilter] = useState('all');
   const [showUpload, setShowUpload] = useState(false);
   const [uploadForm, setUploadForm] = useState({ name: '', project_id: '', file: null });
   const [uploading, setUploading] = useState(false);
@@ -88,7 +89,8 @@ export default function Documents() {
   const filtered = documents.filter(d => {
     const matchSearch = d.name?.toLowerCase().includes(search.toLowerCase());
     const matchStatus = statusFilter === 'all' || d.status === statusFilter;
-    return matchSearch && matchStatus;
+    const matchProject = projectFilter === 'all' || d.project_id === projectFilter;
+    return matchSearch && matchStatus && matchProject;
   });
 
   const projectMap = Object.fromEntries(projects.map(p => [p.id, p.name]));
@@ -110,6 +112,17 @@ export default function Documents() {
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
           <Input placeholder="Search documents..." value={search} onChange={e => setSearch(e.target.value)} className="pl-9" />
         </div>
+        {projects.length > 1 && (
+          <Select value={projectFilter} onValueChange={setProjectFilter}>
+            <SelectTrigger className="w-full sm:w-48">
+              <SelectValue placeholder="All Projects" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Projects</SelectItem>
+              {projects.map(p => <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>)}
+            </SelectContent>
+          </Select>
+        )}
         <Select value={statusFilter} onValueChange={setStatusFilter}>
           <SelectTrigger className="w-full sm:w-40">
             <SelectValue />
