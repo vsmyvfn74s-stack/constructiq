@@ -7,7 +7,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { PanelLeftClose, PanelLeftOpen, Plus, Printer, ZoomIn, ZoomOut } from 'lucide-react';
+import { PanelLeftClose, PanelLeftOpen, Upload, Printer, ZoomIn, ZoomOut } from 'lucide-react';
 import PageHeader from '@/components/shared/PageHeader';
 import TaskList from '@/components/programme/TaskList';
 import GanttChart from '@/components/programme/GanttChart';
@@ -22,8 +22,9 @@ export default function Programme() {
   const [taskListCollapsed, setTaskListCollapsed] = useState(false);
   const [zoom, setZoom] = useState('week');
   const [selectedTask, setSelectedTask] = useState(null);
-  const [showAddTask, setShowAddTask] = useState(false);
-  const [newTask, setNewTask] = useState({ name: '', project_id: '', level: 2, start_date: '', end_date: '', duration: 5, parent_id: '', predecessors: [] });
+  const [showUploadMPP, setShowUploadMPP] = useState(false);
+  const [mppFile, setMppFile] = useState(null);
+  const [uploading, setUploading] = useState(false);
   const queryClient = useQueryClient();
 
   const { data: allProjectsRaw = [] } = useQuery({
@@ -55,24 +56,72 @@ export default function Programme() {
     ? accessibleTasks
     : accessibleTasks.filter(t => t.project_id === selectedProjectId);
 
-  const createMutation = useMutation({
-    mutationFn: async (data) => {
-      const siblings = allTasks.filter(t => t.project_id === data.project_id && !t.parent_id);
-      const wbsNum = siblings.length + 1;
-      return base44.entities.Task.create({
-        ...data,
-        wbs: String(wbsNum),
-        sort_order: wbsNum,
-        percent_complete: 0,
-        predecessors: [],
+  const handleMPPUpload = async () => {
+    if (!mppFile) return;
+    setUploading(true);
+    
+    try {
+      // Upload the file and extract data from it
+      const { file_url } = await base44.integrations.Core.UploadFile({ file: mppFile });
+      
+      // Extract project data from MPP file
+      const extractedData = await base44.integrations.Core.ExtractDataFromUploadedFile({
+        file_url,
+        json_schema: {
+          type: 'object',
+          properties: {
+            projectName: { type: 'string' },
+            startDate: { type: 'string' },
+            endDate: { type: 'string' },
+            tasks: {
+              type: 'array',
+              items: {
+                type: 'object',
+                properties: {
+                  name: { type: 'string' },
+                  wbs: { type: 'string' },
+                  level: { type: 'number' },
+                  startDate: { type: 'string' },
+                  endDate: { type: 'string' },
+                  duration: { type: 'number' },
+                  predecessors: { type: 'array' }
+                }
+              }
+            }
+          }
+        }
       });
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['tasks'] });
-      setShowAddTask(false);
-      setNewTask({ name: '', project_id: '', level: 2, start_date: '', end_date: '', duration: 5 });
+      
+      if (extractedData?.output?.tasks) {
+        // Create or get the project
+        let projectId = selectedProjectId !== 'all' ? selectedProjectId : projects[0]?.id;
+        
+        // Bulk create tasks from MPP data
+        for (const task of extractedData.output.tasks) {
+          await base44.entities.Task.create({
+            name: task.name,
+            project_id: projectId,
+            wbs: task.wbs || '',
+            level: task.level || 2,
+            start_date: task.startDate,
+            end_date: task.endDate,
+            duration: task.duration || 1,
+            percent_complete: 0,
+            predecessors: task.predecessors || [],
+          });
+        }
+        
+        queryClient.invalidateQueries({ queryKey: ['tasks'] });
+      }
+      
+      setShowUploadMPP(false);
+      setMppFile(null);
+    } catch (error) {
+      console.error('Error uploading MPP file:', error);
+    } finally {
+      setUploading(false);
     }
-  });
+  };
 
   const handlePrint = () => window.print();
 
@@ -108,20 +157,8 @@ export default function Programme() {
             <Button variant="outline" size="icon" onClick={handlePrint} title="Print">
               <Printer className="w-4 h-4" />
             </Button>
-            <Button onClick={() => {
-              const today = new Date().toISOString().split('T')[0];
-              const endDate = new Date(); endDate.setDate(endDate.getDate() + 4);
-              setNewTask({
-                name: '',
-                project_id: selectedProjectId !== 'all' ? selectedProjectId : (projects[0]?.id || ''),
-                level: 2,
-                start_date: today,
-                end_date: endDate.toISOString().split('T')[0],
-                duration: 5,
-              });
-              setShowAddTask(true);
-            }} className="gap-2">
-              <Plus className="w-4 h-4" /> Add Task
+            <Button onClick={() => setShowUploadMPP(true)} className="gap-2">
+              <Upload className="w-4 h-4" /> Upload MPP File
             </Button>
           </div>
         }
@@ -144,19 +181,6 @@ export default function Programme() {
             <TaskList
               tasks={tasks}
               onTaskClick={setSelectedTask}
-              onAddTask={() => {
-                const today = new Date().toISOString().split('T')[0];
-                const endDate = new Date(); endDate.setDate(endDate.getDate() + 4);
-                setNewTask({
-                  name: '',
-                  project_id: selectedProjectId !== 'all' ? selectedProjectId : (projects[0]?.id || ''),
-                  level: 2,
-                  start_date: today,
-                  end_date: endDate.toISOString().split('T')[0],
-                  duration: 5,
-                });
-                setShowAddTask(true);
-              }}
               collapsed={false}
               canEdit={isAdmin || user?.role === 'internal'}
             />
@@ -175,164 +199,34 @@ export default function Programme() {
         onOpenChange={(open) => { if (!open) setSelectedTask(null); }}
       />
 
-      {/* Add task dialog */}
-      <Dialog open={showAddTask} onOpenChange={setShowAddTask}>
-        <DialogContent className="sm:max-w-lg max-h-[90vh] overflow-y-auto">
-          <DialogHeader><DialogTitle>Add Task</DialogTitle></DialogHeader>
+      {/* Upload MPP file dialog */}
+      <Dialog open={showUploadMPP} onOpenChange={setShowUploadMPP}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader><DialogTitle>Upload Microsoft Project File</DialogTitle></DialogHeader>
           <div className="space-y-4">
             <div>
-              <Label>Task Name *</Label>
-              <Input value={newTask.name} onChange={e => setNewTask({...newTask, name: e.target.value})} placeholder="Task name" />
-            </div>
-            <div>
-              <Label>Project *</Label>
-              <Select value={newTask.project_id} onValueChange={v => setNewTask({...newTask, project_id: v})}>
+              <Label>Select Project *</Label>
+              <Select value={selectedProjectId !== 'all' ? selectedProjectId : (projects[0]?.id || '')} onValueChange={setSelectedProjectId}>
                 <SelectTrigger><SelectValue placeholder="Select project" /></SelectTrigger>
                 <SelectContent>
                   {projects.map(p => <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>)}
                 </SelectContent>
               </Select>
             </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <Label>Level</Label>
-                <Select value={String(newTask.level)} onValueChange={v => setNewTask({...newTask, level: parseInt(v)})}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="0">Phase</SelectItem>
-                    <SelectItem value="1">Summary Task</SelectItem>
-                    <SelectItem value="2">Task</SelectItem>
-                    <SelectItem value="3">Subtask</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div>
-                <Label>Parent Task</Label>
-                <Select value={newTask.parent_id || '__none__'} onValueChange={v => setNewTask({...newTask, parent_id: v === '__none__' ? '' : v})}>
-                  <SelectTrigger><SelectValue placeholder="None" /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="__none__">None</SelectItem>
-                    {tasks.filter(t => t.project_id === newTask.project_id && t.level < newTask.level).map(t => (
-                      <SelectItem key={t.id} value={t.id}>{t.wbs ? `${t.wbs} ` : ''}{t.name}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-            <div className="grid grid-cols-3 gap-3">
-              <div>
-                <Label>Start Date</Label>
-                <Input type="date" value={newTask.start_date} onChange={e => {
-                  const start = e.target.value;
-                  const dur = newTask.duration || 1;
-                  const end = new Date(start);
-                  end.setDate(end.getDate() + dur - 1);
-                  setNewTask({...newTask, start_date: start, end_date: end.toISOString().split('T')[0]});
-                }} />
-              </div>
-              <div>
-                <Label>Duration (days)</Label>
-                <Input type="number" min="1" value={newTask.duration} onChange={e => {
-                  const dur = parseInt(e.target.value) || 1;
-                  const start = newTask.start_date;
-                  let end_date = newTask.end_date;
-                  if (start) {
-                    const end = new Date(start);
-                    end.setDate(end.getDate() + dur - 1);
-                    end_date = end.toISOString().split('T')[0];
-                  }
-                  setNewTask({...newTask, duration: dur, end_date});
-                }} />
-              </div>
-              <div>
-                <Label>End Date</Label>
-                <Input type="date" value={newTask.end_date} onChange={e => {
-                  const end = e.target.value;
-                  const start = newTask.start_date;
-                  let duration = newTask.duration;
-                  if (start && end) {
-                    duration = Math.max(1, Math.round((new Date(end) - new Date(start)) / 86400000) + 1);
-                  }
-                  setNewTask({...newTask, end_date: end, duration});
-                }} />
-              </div>
-            </div>
-
-            {/* Predecessors */}
             <div>
-              <div className="flex items-center justify-between mb-1">
-                <Label>Predecessors</Label>
-                <button
-                  type="button"
-                  className="text-xs text-primary hover:underline"
-                  onClick={() => setNewTask({...newTask, predecessors: [...(newTask.predecessors || []), { task_id: '', lag_days: 0 }]})}
-                >+ Add predecessor</button>
-              </div>
-              {(newTask.predecessors || []).length === 0 && (
-                <p className="text-xs text-muted-foreground">No predecessors</p>
-              )}
-              {(newTask.predecessors || []).map((pred, idx) => (
-                <div key={idx} className="flex items-center gap-2 mt-1">
-                  <Select value={pred.task_id} onValueChange={v => {
-                    const preds = [...newTask.predecessors];
-                    preds[idx] = {...preds[idx], task_id: v};
-                    // Auto-set start date to day after predecessor ends (considering all predecessors + lag)
-                    const updatedPreds = [...newTask.predecessors];
-                    updatedPreds[idx] = {...updatedPreds[idx], task_id: v};
-                    const latestEnd = updatedPreds.reduce((latest, p) => {
-                      const predTask = tasks.find(t => t.id === p.task_id);
-                      if (!predTask?.end_date) return latest;
-                      const endPlusLag = new Date(predTask.end_date);
-                      endPlusLag.setDate(endPlusLag.getDate() + (p.lag_days || 0) + 1);
-                      return endPlusLag > latest ? endPlusLag : latest;
-                    }, null);
-                    if (latestEnd) {
-                      const newStart = latestEnd.toISOString().split('T')[0];
-                      const dur = newTask.duration || 1;
-                      const newEnd = new Date(latestEnd);
-                      newEnd.setDate(newEnd.getDate() + dur - 1);
-                      setNewTask({...newTask, predecessors: updatedPreds, start_date: newStart, end_date: newEnd.toISOString().split('T')[0]});
-                    } else {
-                      setNewTask({...newTask, predecessors: updatedPreds});
-                    }
-                  }}>
-                    <SelectTrigger className="flex-1 h-8 text-xs"><SelectValue placeholder="Select task" /></SelectTrigger>
-                    <SelectContent>
-                      {tasks.filter(t => t.project_id === newTask.project_id).map(t => (
-                        <SelectItem key={t.id} value={t.id}>{t.wbs ? `${t.wbs} ` : ''}{t.name}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  <div className="flex items-center gap-1 flex-shrink-0">
-                    <span className="text-xs text-muted-foreground">Lag</span>
-                    <Input
-                      type="number"
-                      className="w-16 h-8 text-xs text-center"
-                      value={pred.lag_days}
-                      onChange={e => {
-                        const preds = [...newTask.predecessors];
-                        preds[idx] = {...preds[idx], lag_days: parseInt(e.target.value) || 0};
-                        setNewTask({...newTask, predecessors: preds});
-                      }}
-                    />
-                    <span className="text-xs text-muted-foreground">d</span>
-                  </div>
-                  <button
-                    type="button"
-                    className="text-xs text-destructive hover:underline flex-shrink-0"
-                    onClick={() => {
-                      const preds = newTask.predecessors.filter((_, i) => i !== idx);
-                      setNewTask({...newTask, predecessors: preds});
-                    }}
-                  >✕</button>
-                </div>
-              ))}
+              <Label>.MPP File *</Label>
+              <Input
+                type="file"
+                accept=".mpp"
+                onChange={e => setMppFile(e.target.files?.[0] || null)}
+              />
+              {mppFile && <p className="text-xs text-muted-foreground mt-1">Selected: {mppFile.name}</p>}
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setShowAddTask(false)}>Cancel</Button>
-            <Button onClick={() => createMutation.mutate(newTask)} disabled={!newTask.name || !newTask.project_id || createMutation.isPending}>
-              {createMutation.isPending ? 'Creating...' : 'Create Task'}
+            <Button variant="outline" onClick={() => { setShowUploadMPP(false); setMppFile(null); }}>Cancel</Button>
+            <Button onClick={handleMPPUpload} disabled={!mppFile || uploading}>
+              {uploading ? 'Uploading...' : 'Upload'}
             </Button>
           </DialogFooter>
         </DialogContent>
