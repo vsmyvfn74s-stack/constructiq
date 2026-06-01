@@ -148,10 +148,13 @@ export default function TaskList({ tasks, onTaskClick, onAddTask, collapsed, can
             isEditing ? 'bg-primary/5' : 'cursor-pointer',
             hasPendingUpdate && !isEditing && 'bg-amber-50/50 dark:bg-amber-950/20',
           )}
-          style={{ gridTemplateColumns: `auto 24px 1fr 56px 70px 70px 56px 80px`, paddingLeft: `${8 + depth * 16}px` }}
+          style={{ gridTemplateColumns: `56px auto 24px 1fr 70px 70px 56px 80px`, paddingLeft: `${8 + depth * 16}px` }}
           onClick={isEditing ? undefined : () => onTaskClick(task)}
           onDoubleClick={(e) => canEdit && startEdit(task, e)}
         >
+          {/* WBS column - first */}
+          <span className="text-[10px] font-mono text-muted-foreground text-center flex items-center justify-center">{task.wbs || '—'}</span>
+
           {/* Expand toggle */}
           <div className="w-5 flex-shrink-0 flex items-center justify-center">
             {hasChildren ? (
@@ -169,6 +172,10 @@ export default function TaskList({ tasks, onTaskClick, onAddTask, collapsed, can
 
           {isEditing ? (
             <>
+              <Input type="text" value={task.wbs || ''}
+                disabled
+                className="h-7 text-xs text-center text-[10px] bg-muted/30"
+                onClick={e => e.stopPropagation()} />
               <div />
               <Input
                 autoFocus
@@ -178,10 +185,6 @@ export default function TaskList({ tasks, onTaskClick, onAddTask, collapsed, can
                 onClick={e => e.stopPropagation()}
                 onKeyDown={e => { if (e.key === 'Enter') commitEdit(task.id); if (e.key === 'Escape') setEditingId(null); }}
               />
-              <Input type="text" value={task.wbs || ''}
-                disabled
-                className="h-7 text-xs text-center text-[10px] bg-muted/30"
-                onClick={e => e.stopPropagation()} />
               <Input type="number" min="1" value={editValues.duration}
                 onChange={e => handleFieldChange('duration', e.target.value)}
                 className="h-7 text-xs text-center" onClick={e => e.stopPropagation()} />
@@ -209,9 +212,6 @@ export default function TaskList({ tasks, onTaskClick, onAddTask, collapsed, can
               )}>
                 {task.name}
               </span>
-              
-              {/* WBS column */}
-              <span className="text-[10px] font-mono text-muted-foreground text-center flex items-center justify-center">{task.wbs || '—'}</span>
               
               {/* Duration column */}
               <div className="flex items-center justify-center gap-0.5 h-full">
@@ -273,11 +273,11 @@ export default function TaskList({ tasks, onTaskClick, onAddTask, collapsed, can
       </div>
 
       {/* Column headers */}
-      <div className="grid items-center border-b text-[10px] font-medium text-muted-foreground uppercase tracking-wider bg-muted/30 px-2 h-10 gap-0" style={{ gridTemplateColumns: 'auto 24px 1fr 56px 70px 70px 56px 80px' }}>
+      <div className="grid items-center border-b text-[10px] font-medium text-muted-foreground uppercase tracking-wider bg-muted/30 px-2 h-10 gap-0" style={{ gridTemplateColumns: '56px auto 24px 1fr 70px 70px 56px 80px' }}>
+        <span className="text-center">WBS</span>
         <div className="w-5" />
         <div className="w-5" />
         <span className="truncate px-1">Name</span>
-        <span className="text-center">WBS</span>
         <span className="text-center">Duration</span>
         <span className="text-center">Start</span>
         <span className="text-center">End</span>
