@@ -21,6 +21,7 @@ import PageHeader from '@/components/shared/PageHeader';
 import TaskList from '@/components/programme/TaskList';
 import GanttChart from '@/components/programme/GanttChart';
 import TaskEditPanel from '@/components/programme/TaskEditPanel';
+import { parseXML, parseMPX, parseExcelCSV } from '@/lib/scheduleImportParsers';
 
 export default function Programme() {
   const { user } = useAuth();
@@ -77,81 +78,33 @@ export default function Programme() {
     ? accessibleTasks
     : accessibleTasks.filter(t => t.project_id === selectedProjectId);
 
-  const parseMPPXml = (xmlText, projectId) => {
-    const parser = new DOMParser();
-    const xml = parser.parseFromString(xmlText, 'text/xml');
-
-    // Microsoft Project XML uses <Tasks><Task>...</Task></Tasks>
-    const taskNodes = Array.from(xml.querySelectorAll('Tasks > Task'));
-
-    const formatDate = (str) => {
-      if (!str) return null;
-      // MS Project dates: "2025-06-01T08:00:00" → "2025-06-01"
-      return str.split('T')[0];
-    };
-
-    const tasks = taskNodes
-      .map(node => {
-        const get = (tag) => node.querySelector(tag)?.textContent?.trim() || '';
-        const uid = get('UID');
-        const name = get('Name');
-        const wbs = get('WBS');
-        const outlineLevel = parseInt(get('OutlineLevel')) || 0;
-        const start = formatDate(get('Start'));
-        const finish = formatDate(get('Finish'));
-        const durationStr = get('Duration'); // PT8H0M0S or similar
-        // Parse ISO 8601 duration: e.g. P5DT0H0M0S → 5 days
-        const durationDays = (() => {
-          const match = durationStr.match(/P(\d+)DT/);
-          if (match) return parseInt(match[1]);
-          // Fallback: PT8H = 1 day
-          const hoursMatch = durationStr.match(/PT(\d+)H/);
-          if (hoursMatch) return Math.max(1, Math.round(parseInt(hoursMatch[1]) / 8));
-          return 1;
-        })();
-        const percentComplete = parseInt(get('PercentComplete')) || 0;
-        const isSummary = get('Summary') === '1';
-        const sortOrder = parseInt(get('ID')) || 0;
-
-        if (!name || uid === '0') return null; // skip project summary row
-
-        return {
-          uid,
-          name,
-          wbs,
-          level: Math.min(outlineLevel, 3),
-          start_date: start,
-          end_date: finish,
-          duration: durationDays,
-          percent_complete: percentComplete,
-          is_summary: isSummary,
-          sort_order: sortOrder,
-          project_id: projectId,
-          predecessors: [],
-        };
-      })
-      .filter(Boolean);
-
-    return tasks;
-  };
-
   const handleMPPUpload = async () => {
     if (!mppFile || !selectedProjectId || selectedProjectId === 'all') return;
     setUploading(true);
 
     try {
-      const text = await mppFile.text();
-      const tasks = parseMPPXml(text, selectedProjectId);
+      const ext = mppFile.name.split('.').pop().toLowerCase();
+      let parsedTasks = [];
 
-      if (tasks.length > 0) {
-        await base44.entities.Task.bulkCreate(tasks);
+      if (ext === 'xml') {
+        const text = await mppFile.text();
+        parsedTasks = parseXML(text, selectedProjectId);
+      } else if (ext === 'mpx') {
+        const text = await mppFile.text();
+        parsedTasks = parseMPX(text, selectedProjectId);
+      } else if (ext === 'xlsx' || ext === 'xls' || ext === 'csv') {
+        parsedTasks = await parseExcelCSV(mppFile, selectedProjectId);
+      }
+
+      if (parsedTasks.length > 0) {
+        await base44.entities.Task.bulkCreate(parsedTasks);
         queryClient.invalidateQueries({ queryKey: ['tasks'] });
       }
 
       setShowUploadMPP(false);
       setMppFile(null);
     } catch (error) {
-      console.error('Error parsing MPP XML file:', error);
+      console.error('Error importing schedule file:', error);
     } finally {
       setUploading(false);
     }
@@ -210,7 +163,7 @@ export default function Programme() {
               <Printer className="w-4 h-4" />
             </Button>
             <Button onClick={() => setShowUploadMPP(true)} className="gap-2">
-              <Upload className="w-4 h-4" /> Upload MPP File
+              <Upload className="w-4 h-4" /> Import Schedule
             </Button>
             <Button 
               variant="destructive" 
@@ -287,20 +240,27 @@ export default function Programme() {
         </AlertDialogContent>
       </AlertDialog>
 
-      {/* Upload MPP file dialog */}
+      {/* Upload schedule file dialog */}
       <Dialog open={showUploadMPP} onOpenChange={setShowUploadMPP}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader><DialogTitle>Import Microsoft Project Schedule</DialogTitle></DialogHeader>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader><DialogTitle>Import Schedule</DialogTitle></DialogHeader>
           <div className="space-y-4">
-            <div className="rounded-md bg-amber-50 border border-amber-200 p-3 text-xs text-amber-800">
-              <p className="font-semibold mb-1">How to export from MS Project:</p>
-              <ol className="list-decimal list-inside space-y-0.5">
-                <li>Open your .mpp file in Microsoft Project</li>
-                <li>Go to <strong>File → Save As</strong></li>
-                <li>Choose <strong>XML Format (*.xml)</strong> as the file type</li>
-                <li>Upload that .xml file here</li>
-              </ol>
+            {/* Format cards */}
+            <div className="grid grid-cols-3 gap-2 text-xs">
+              <div className="rounded-md border p-2.5 space-y-1">
+                <p className="font-semibold text-foreground">XML (recommended)</p>
+                <p className="text-muted-foreground">File → Save As → XML Format (*.xml)</p>
+              </div>
+              <div className="rounded-md border p-2.5 space-y-1">
+                <p className="font-semibold text-foreground">Excel / CSV</p>
+                <p className="text-muted-foreground">Columns: Name, Start, End, Duration, WBS, % Complete</p>
+              </div>
+              <div className="rounded-md border p-2.5 space-y-1">
+                <p className="font-semibold text-foreground">MPX</p>
+                <p className="text-muted-foreground">File → Save As → MPX (legacy text format)</p>
+              </div>
             </div>
+
             <div>
               <Label>Select Project *</Label>
               <Select value={selectedProjectId !== 'all' ? selectedProjectId : (projects[0]?.id || '')} onValueChange={setSelectedProjectId}>
@@ -310,11 +270,12 @@ export default function Programme() {
                 </SelectContent>
               </Select>
             </div>
+
             <div>
-              <Label>MS Project XML File (.xml) *</Label>
+              <Label>Schedule File *</Label>
               <Input
                 type="file"
-                accept=".xml"
+                accept=".xml,.mpx,.xlsx,.xls,.csv"
                 onChange={e => setMppFile(e.target.files?.[0] || null)}
               />
               {mppFile && <p className="text-xs text-muted-foreground mt-1">Selected: {mppFile.name}</p>}
