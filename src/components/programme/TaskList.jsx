@@ -55,6 +55,16 @@ export default function TaskList({ tasks, onTaskClick, onAddTask, collapsed, can
   // Use the same flattening logic as GanttChart for alignment
   const flatTasksArray = useMemo(() => flattenTasks(tasks), [tasks]);
 
+  const adjustCompletion = async (task, delta) => {
+    const newPct = Math.min(100, Math.max(0, (task.percent_complete || 0) + delta));
+    onPushHistory?.(
+      [{ id: task.id, data: { percent_complete: task.percent_complete || 0 } }],
+      [{ id: task.id, data: { percent_complete: newPct } }],
+    );
+    await base44.entities.Task.update(task.id, { percent_complete: newPct });
+    queryClient.invalidateQueries({ queryKey: ['tasks'] });
+  };
+
   const adjustDays = async (task, delta) => {
     const newDuration = Math.max(1, (task.duration || 1) + delta);
     const newEnd = task.start_date
@@ -256,11 +266,33 @@ export default function TaskList({ tasks, onTaskClick, onAddTask, collapsed, can
               <span className="text-[10px] font-mono text-muted-foreground text-center flex items-center justify-center h-full">{resolved.end !== '—' ? format(new Date(resolved.end), 'dd/MM/yy') : '—'}</span>
               
               {/* Completion column */}
-              <div className="flex items-center justify-center gap-1 px-1 h-full">
-                <div className="w-8 h-1.5 bg-muted rounded-full overflow-hidden flex-shrink-0">
-                  <div className="h-full bg-primary rounded-full" style={{ width: `${percentComplete}%` }} />
-                </div>
-                <span className="text-[10px] text-right flex-shrink-0">{percentComplete}%</span>
+              <div className="flex items-center justify-center gap-0.5 h-full px-1">
+                {canEdit ? (
+                  <>
+                    <button
+                      className="w-4 h-4 flex items-center justify-center rounded border border-border hover:bg-muted text-muted-foreground disabled:opacity-40 opacity-0 group-hover:opacity-100 transition-opacity"
+                      onClick={e => { e.stopPropagation(); adjustCompletion(task, -5); }}
+                      title="Remove 5%"
+                    >
+                      <Minus className="w-2 h-2" />
+                    </button>
+                    <span className="text-[10px] font-mono w-7 text-center">{percentComplete}%</span>
+                    <button
+                      className="w-4 h-4 flex items-center justify-center rounded border border-border hover:bg-muted text-muted-foreground disabled:opacity-40 opacity-0 group-hover:opacity-100 transition-opacity"
+                      onClick={e => { e.stopPropagation(); adjustCompletion(task, 5); }}
+                      title="Add 5%"
+                    >
+                      <Plus className="w-2 h-2" />
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <div className="w-8 h-1.5 bg-muted rounded-full overflow-hidden flex-shrink-0">
+                      <div className="h-full bg-primary rounded-full" style={{ width: `${percentComplete}%` }} />
+                    </div>
+                    <span className="text-[10px] text-right flex-shrink-0">{percentComplete}%</span>
+                  </>
+                )}
               </div>
             </>
           )}
