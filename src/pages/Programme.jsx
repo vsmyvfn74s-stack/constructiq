@@ -196,18 +196,20 @@ export default function Programme() {
     if (!selectedProjectId || selectedProjectId === 'all') return;
     setDeleting(true);
     
-    try {
-      const projectTasks = tasks;
-      for (const task of projectTasks) {
+    const projectTasks = [...tasks];
+    for (const task of projectTasks) {
+      try {
         await base44.entities.Task.delete(task.id);
+      } catch (error) {
+        // Skip 404s (already deleted) but rethrow other errors
+        if (error?.status !== 404) console.error('Error deleting task:', task.id, error);
       }
-      queryClient.invalidateQueries({ queryKey: ['tasks'] });
-      setShowDeleteConfirm(false);
-    } catch (error) {
-      console.error('Error deleting tasks:', error);
-    } finally {
-      setDeleting(false);
+      // Small delay to avoid rate limiting
+      await new Promise(r => setTimeout(r, 150));
     }
+    queryClient.invalidateQueries({ queryKey: ['tasks'] });
+    setShowDeleteConfirm(false);
+    setDeleting(false);
   };
 
   const handlePrint = () => window.print();
