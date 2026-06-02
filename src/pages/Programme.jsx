@@ -143,9 +143,8 @@ export default function Programme() {
       const tasksToCreate = parsedTasks.map(({ _mspUid, _predecessorLinks, ...t }) => t);
       const created = await base44.entities.Task.bulkCreate(tasksToCreate);
 
-      // ── Pass 2: resolve UID → DB ID and write predecessor links ────────────
+      // ── Pass 2: resolve UID → DB ID, write predecessor links + parent_id ──
       // Build map: mspUid → created DB id
-      // bulkCreate returns an array in the same order as input
       const uidToDbId = new Map();
       parsedTasks.forEach((pt, i) => {
         if (pt._mspUid != null && created[i]?.id) {
@@ -153,44 +152,59 @@ export default function Programme() {
         }
       });
 
-      // Find tasks that have predecessor links to write
+      // Find tasks that need predecessor links or parent_id resolved
       const updates = [];
       parsedTasks.forEach((pt, i) => {
-        if (!pt._predecessorLinks?.length) return;
         const dbId = created[i]?.id;
         if (!dbId) return;
 
-        const predecessors = pt._predecessorLinks
-          .map(link => {
-            const predDbId = uidToDbId.get(link._predUid);
-            if (!predDbId) return null;
-            return {
-              predecessor_id: predDbId,
-              task_id: predDbId,
-              type: link.type,
-              lag_hours: link.lag_hours,
-              lag_days: Math.round(link.lag_hours / 8),
-              is_elapsed: link.is_elapsed,
-            };
-          })
-          .filter(Boolean);
+        const updatePayload = {};
 
-        if (predecessors.length > 0) {
-          updates.push({ id: dbId, predecessors });
+        // Resolve predecessor links
+        if (pt._predecessorLinks?.length) {
+          const predecessors = pt._predecessorLinks
+            .map(link => {
+              const predDbId = uidToDbId.get(link._predUid);
+              if (!predDbId) return null;
+              return {
+                predecessor_id: predDbId,
+                task_id: predDbId,
+                type: link.type,
+                lag_hours: link.lag_hours,
+                lag_days: Math.round(link.lag_hours / 8),
+                is_elapsed: link.is_elapsed,
+              };
+            })
+            .filter(Boolean);
+          if (predecessors.length > 0) updatePayload.predecessors = predecessors;
+        }
+
+        // Resolve parent_id from _parentUid
+        if (pt._parentUid != null) {
+          const parentDbId = uidToDbId.get(pt._parentUid);
+          if (parentDbId) updatePayload.parent_id = parentDbId;
+        }
+
+        if (Object.keys(updatePayload).length > 0) {
+          updates.push({ id: dbId, ...updatePayload });
         }
       });
 
-      // Apply predecessor updates sequentially
+      // Apply updates sequentially
       for (const update of updates) {
-        await base44.entities.Task.update(update.id, { predecessors: update.predecessors });
+        const { id, ...payload } = update;
+        await base44.entities.Task.update(id, payload);
       }
 
       // ── Pass 3: re-schedule all tasks using the engine so dates follow dependencies ──
-      // Build in-memory task list with predecessors applied
+      // Build in-memory task list with predecessors + parent_id applied
       const taskListForEngine = created.map((createdTask, i) => {
-        const pt = parsedTasks[i];
-        const predecessors = updates.find(u => u.id === createdTask.id)?.predecessors || [];
-        return { ...createdTask, predecessors };
+        const update = updates.find(u => u.id === createdTask.id);
+        return {
+          ...createdTask,
+          predecessors: update?.predecessors || createdTask.predecessors || [],
+          parent_id: update?.parent_id || createdTask.parent_id || null,
+        };
       });
 
       // Find earliest start date as project anchor

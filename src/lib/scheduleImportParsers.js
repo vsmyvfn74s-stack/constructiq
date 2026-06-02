@@ -34,13 +34,13 @@ export const parseXML = (text, projectId) => {
   const xml = parser.parseFromString(text, 'text/xml');
   const taskNodes = Array.from(xml.querySelectorAll('Tasks > Task'));
 
-  return taskNodes.map(node => {
+  // First pass: collect raw task data keyed by UID
+  const rawTasks = taskNodes.map(node => {
     const get = (tag) => node.querySelector(tag)?.textContent?.trim() || '';
     const uid = get('UID');
     const name = get('Name');
     if (!name || uid === '0') return null;
 
-    // Read all PredecessorLink nodes
     const predLinks = Array.from(node.querySelectorAll('PredecessorLink')).map(pl => {
       const predUid = pl.querySelector('PredecessorUID')?.textContent?.trim();
       if (!predUid || predUid === '0') return null;
@@ -58,6 +58,8 @@ export const parseXML = (text, projectId) => {
     }).filter(Boolean);
 
     return {
+      _mspUid: parseInt(uid),
+      _outlineLevel: parseInt(get('OutlineLevel')) || 0,
       name,
       wbs: get('WBS'),
       level: Math.min(parseInt(get('OutlineLevel')) || 0, 3),
@@ -69,11 +71,36 @@ export const parseXML = (text, projectId) => {
       sort_order: parseInt(get('ID')) || 0,
       project_id: projectId,
       predecessors: [],
-      // Temp fields stripped before save — used for second-pass linking
-      _mspUid: parseInt(uid),
       _predecessorLinks: predLinks,
     };
   }).filter(Boolean);
+
+  // Second pass: derive parent_id by tracking the ancestor stack per outline level
+  // Stack maps outlineLevel → the UID of the most recent task at that level
+  const ancestorStack = new Map(); // level → uid
+
+  rawTasks.forEach(task => {
+    const level = task._outlineLevel;
+
+    // Parent is the most recent task whose outlineLevel is one less
+    let parentUid = null;
+    for (let l = level - 1; l >= 0; l--) {
+      if (ancestorStack.has(l)) {
+        parentUid = ancestorStack.get(l);
+        break;
+      }
+    }
+    task._parentUid = parentUid;
+
+    // Register this task as the current node at its level
+    ancestorStack.set(level, task._mspUid);
+    // Clear any deeper levels (they are no longer valid ancestors)
+    for (const key of [...ancestorStack.keys()]) {
+      if (key > level) ancestorStack.delete(key);
+    }
+  });
+
+  return rawTasks;
 };
 
 // ─── MPX (legacy MS Project text format) ──────────────────────────────────────
