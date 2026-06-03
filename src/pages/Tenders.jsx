@@ -2,7 +2,8 @@ import React, { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { base44 } from '@/api/base44Client';
 import { useAuth } from '@/lib/AuthContext';
-import { Link, useNavigate } from 'react-router-dom';
+import { canAccess, canManage as canManagePerm } from '@/lib/permissions';
+import { Link, useNavigate, Navigate } from 'react-router-dom';
 import { Plus, Search, FileSignature, Calendar, Users, MapPin, DollarSign, Clock } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -45,10 +46,14 @@ const STATUS_TABS = ['All', 'Draft', 'Issued', 'Closed', 'Awarded', 'Unsuccessfu
 export default function Tenders() {
   const { user } = useAuth();
   const navigate = useNavigate();
-  const canManage = ['admin', 'internal', 'pricing'].includes(user?.role);
   const [search, setSearch] = useState('');
   const [statusTab, setStatusTab] = useState('All');
   const queryClient = useQueryClient();
+  const canManage = canManagePerm(user, 'tenders');
+
+  if (!canAccess(user, 'tenders')) {
+    return <Navigate to="/" replace />;
+  }
 
   const { data: tenders = [], isLoading } = useQuery({
     queryKey: ['tenders'],

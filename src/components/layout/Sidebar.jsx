@@ -6,15 +6,12 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/lib/AuthContext';
+import { canAccess, isAdmin } from '@/lib/permissions';
 
 export default function Sidebar({ collapsed, onToggle }) {
   const location = useLocation();
   const { user } = useAuth();
   const companyLogoUrl = user?.company_logo_url;
-  const role = user?.role || 'external';
-  const isAdmin = role === 'admin';
-  const isPricing = role === 'pricing';
-  const canAccessTenders = isAdmin || role === 'internal' || isPricing;
 
   const navItems = [
     { path: '/', icon: LayoutDashboard, label: 'Dashboard', show: true },
@@ -22,8 +19,8 @@ export default function Sidebar({ collapsed, onToggle }) {
     { path: '/documents', icon: FileText, label: 'Documents', show: true },
     { path: '/rfis', icon: MessageSquareMore, label: 'RFIs', show: true },
     { path: '/programme', icon: GanttChart, label: 'Programme', show: true },
-    { path: '/tenders', icon: FileSignature, label: 'Tenders', show: canAccessTenders },
-    { path: '/settings', icon: Settings, label: 'Settings', show: isAdmin },
+    { path: '/tenders', icon: FileSignature, label: 'Tenders', show: canAccess(user, 'tenders') },
+    { path: '/settings', icon: Settings, label: 'Settings', show: isAdmin(user) },
   ];
   const companyName = user?.company_name || 'ConstructIQ';
 

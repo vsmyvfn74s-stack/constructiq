@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { useParams, useNavigate, Link } from 'react-router-dom';
+import { useParams, useNavigate, Link, Navigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { base44 } from '@/api/base44Client';
 import { useAuth } from '@/lib/AuthContext';
+import { canAccess, canManage as canManagePerm } from '@/lib/permissions';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -38,7 +39,7 @@ export default function TenderDetail() {
   const { user } = useAuth();
   const { toast } = useToast();
   const queryClient = useQueryClient();
-  const canManage = ['admin', 'internal', 'pricing'].includes(user?.role);
+  const canManage = canManagePerm(user, 'tenders');
   const [showConvert, setShowConvert] = useState(false);
   const [customTrade, setCustomTrade] = useState('');
   const [form, setForm] = useState(null);
@@ -50,6 +51,11 @@ export default function TenderDetail() {
       return results[0] || null;
     },
   });
+
+  // Guard: redirect unauthorized users
+  if (!canAccess(user, 'tenders')) {
+    return <Navigate to="/" replace />;
+  }
 
   // Sync form when tender loads
   useEffect(() => {

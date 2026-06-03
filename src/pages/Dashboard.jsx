@@ -2,6 +2,7 @@ import React from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { base44 } from '@/api/base44Client';
 import { useAuth } from '@/lib/AuthContext';
+import { isAdmin } from '@/lib/permissions';
 import { Link } from 'react-router-dom';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { FolderKanban, FileText, MessageSquareMore, GanttChart, ArrowRight, Clock } from 'lucide-react';
@@ -34,14 +35,14 @@ function StatCard({ icon: Icon, label, value, color, to }) {
 
 export default function Dashboard() {
   const { user } = useAuth();
-  const isAdmin = user?.role === 'admin';
+  const userIsAdmin = isAdmin(user);
 
   const { data: allProjects = [] } = useQuery({
     queryKey: ['projects'],
-    queryFn: () => base44.entities.Project.list('-created_date', 200),
+    queryFn: () => base44.entities.Project.list('-created_date', 100),
   });
 
-  const projects = isAdmin
+  const projects = userIsAdmin
     ? allProjects
     : allProjects.filter(p => p.team?.some(m => m.user_email === user?.email));
 
@@ -49,17 +50,20 @@ export default function Dashboard() {
 
   const { data: allRfis = [] } = useQuery({
     queryKey: ['rfis'],
-    queryFn: () => base44.entities.RFI.list('-created_date', 500),
+    queryFn: () => base44.entities.RFI.list('-created_date', 200),
+    enabled: projectIds.size > 0 || userIsAdmin,
   });
 
   const { data: allDocuments = [] } = useQuery({
     queryKey: ['documents'],
-    queryFn: () => base44.entities.Document.list('-created_date', 500),
+    queryFn: () => base44.entities.Document.list('-created_date', 100),
+    enabled: projectIds.size > 0 || userIsAdmin,
   });
 
   const { data: allTasks = [] } = useQuery({
     queryKey: ['tasks'],
-    queryFn: () => base44.entities.Task.list('-created_date', 1000),
+    queryFn: () => base44.entities.Task.list('-updated_date', 500),
+    enabled: projectIds.size > 0 || userIsAdmin,
   });
 
   const rfis = allRfis.filter(r => projectIds.has(r.project_id));

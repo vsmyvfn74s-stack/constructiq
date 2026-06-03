@@ -14,6 +14,7 @@ import { Badge } from '@/components/ui/badge';
 import { Save, UserPlus, Shield, Bell, Mail, Clock, RefreshCw, Palette, Tag } from 'lucide-react';
 import PageHeader from '@/components/shared/PageHeader';
 import { DEFAULT_TEMPLATES } from '@/lib/emailTemplates';
+import { isAdmin as checkAdmin } from '@/lib/permissions';
 import UserManagement from '@/components/settings/UserManagement';
 import AppearanceSettings from '@/components/settings/AppearanceSettings';
 import RoleManager from '@/components/settings/RoleManager';
@@ -111,7 +112,7 @@ export default function Settings() {
     }
   });
 
-  const isAdmin = user?.role === 'admin';
+  const isAdmin = checkAdmin(user);
 
   if (!isAdmin && !['internal', 'pricing'].includes(user?.role)) {
     return (
