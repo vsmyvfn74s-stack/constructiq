@@ -84,13 +84,39 @@ Deno.serve(async (req) => {
         invitees: updatedInvitees
       });
 
+      // Fetch branding for brand colour
+      const brandings = await base44.asServiceRole.entities.EmailBranding.list();
+      const branding = brandings[0] || {};
+      const brandColour = branding.brand_colour || '#1a56db';
+
       // Confirmation email to invitee
       try {
         if (invitee.email) {
+          const htmlBody = `<!DOCTYPE html>
+<html><head><meta charset="UTF-8"></head>
+<body style="margin:0;padding:0;background:#f3f4f6;font-family:-apple-system,sans-serif;">
+<table width="100%" cellpadding="0" cellspacing="0" style="padding:32px 16px;background:#f3f4f6;">
+  <tr><td align="center">
+    <table width="600" cellpadding="0" cellspacing="0"
+           style="max-width:600px;background:#fff;border-radius:8px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,.1);">
+      <tr><td style="background:${brandColour};height:4px;"></td></tr>
+      <tr><td style="padding:32px 40px;font-size:15px;color:#111827;line-height:1.7;">
+        <p>Dear <strong>${invitee.full_name}</strong>,</p>
+        <p>Thank you for submitting your pricing for <strong>${tender.title}</strong>.</p>
+        <p>Your submission has been received. We will be in touch following the
+           closing date${tender.closing_date ? ' of <strong>' + tender.closing_date + '</strong>' : ''}.</p>
+        <p style="margin-top:24px;color:#6b7280;font-size:13px;">Regards,<br>${branding.company_name || 'ConstructIQ'}</p>
+      </td></tr>
+      <tr><td style="background:${brandColour};height:2px;"></td></tr>
+    </table>
+  </td></tr>
+</table>
+</body></html>`;
+
           await base44.asServiceRole.integrations.Core.SendEmail({
             to: invitee.email,
             subject: `Tender Submission Received — ${tender.tender_number || ''}: ${tender.title}`,
-            body: `Dear ${invitee.full_name},\n\nThank you for submitting your pricing for ${tender.title}.\n\nYour submission has been received. We will be in touch following the closing date of ${tender.closing_date || 'advised separately'}.\n\nRegards,\nConstructIQ`,
+            body: htmlBody,
           });
         }
       } catch (_e) { /* email failure is non-blocking */ }
@@ -101,10 +127,37 @@ Deno.serve(async (req) => {
           const price = submission.lump_sum_price
             ? `NZD ${Number(submission.lump_sum_price).toLocaleString('en-NZ', { minimumFractionDigits: 2 })}`
             : 'Not provided';
+
+          const creatorHtml = `<!DOCTYPE html>
+<html><head><meta charset="UTF-8"></head>
+<body style="margin:0;padding:0;background:#f3f4f6;font-family:-apple-system,sans-serif;">
+<table width="100%" cellpadding="0" cellspacing="0" style="padding:32px 16px;background:#f3f4f6;">
+  <tr><td align="center">
+    <table width="600" cellpadding="0" cellspacing="0"
+           style="max-width:600px;background:#fff;border-radius:8px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,.1);">
+      <tr><td style="background:${brandColour};height:4px;"></td></tr>
+      <tr><td style="padding:32px 40px;font-size:15px;color:#111827;line-height:1.7;">
+        <p>A new submission has been received for <strong>${tender.title}</strong>.</p>
+        <table style="width:100%;margin:16px 0;border-collapse:collapse;">
+          <tr><td style="padding:8px 0;border-bottom:1px solid #e5e7eb;font-size:13px;color:#6b7280;">Subcontractor</td>
+              <td style="padding:8px 0;border-bottom:1px solid #e5e7eb;font-size:14px;font-weight:600;">${invitee.full_name}${invitee.business_name ? ' (' + invitee.business_name + ')' : ''}</td></tr>
+          <tr><td style="padding:8px 0;border-bottom:1px solid #e5e7eb;font-size:13px;color:#6b7280;">Submitted</td>
+              <td style="padding:8px 0;border-bottom:1px solid #e5e7eb;font-size:14px;">${new Date().toLocaleDateString('en-NZ')}</td></tr>
+          <tr><td style="padding:8px 0;font-size:13px;color:#6b7280;">Price</td>
+              <td style="padding:8px 0;font-size:14px;font-weight:600;">${price}</td></tr>
+        </table>
+        <p style="font-size:13px;color:#6b7280;">Log in to view and score this submission.</p>
+      </td></tr>
+      <tr><td style="background:${brandColour};height:2px;"></td></tr>
+    </table>
+  </td></tr>
+</table>
+</body></html>`;
+
           await base44.asServiceRole.integrations.Core.SendEmail({
             to: tender.created_by_email,
             subject: `New Submission — ${tender.title}`,
-            body: `New submission received from ${invitee.full_name}${invitee.business_name ? ' (' + invitee.business_name + ')' : ''} for ${tender.title}.\n\nSubmitted: ${new Date().toLocaleDateString('en-NZ')}\nPrice: ${price}\n\nLog in to view and score this submission.`,
+            body: creatorHtml,
           });
         }
       } catch (_e) { /* email failure is non-blocking */ }

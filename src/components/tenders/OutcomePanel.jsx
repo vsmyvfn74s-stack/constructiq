@@ -7,7 +7,7 @@ import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Send, CheckCircle2, XCircle } from 'lucide-react';
 import { useToast } from '@/components/ui/use-toast';
-import { resolveTemplate, applyTemplate } from '@/lib/emailTemplates';
+import { resolveTemplate, applyTemplate, buildEmailHtml } from '@/lib/emailTemplates';
 import { useQuery } from '@tanstack/react-query';
 
 export default function OutcomePanel({ tender, onUpdate, onConvert, canManage }) {
@@ -33,6 +33,11 @@ export default function OutcomePanel({ tender, onUpdate, onConvert, canManage })
     queryFn: () => base44.entities.EmailTemplate.list(),
   });
 
+  const { data: emailBranding = {} } = useQuery({
+    queryKey: ['emailBranding'],
+    queryFn: () => base44.entities.EmailBranding.list().then(r => r[0] ?? {}),
+  });
+
   const submitted = (tender.invitees || []).filter(i => i.submission?.submitted_at);
 
   const saveOurResult = async () => {
@@ -56,7 +61,8 @@ export default function OutcomePanel({ tender, onUpdate, onConvert, canManage })
           sender_name: user?.full_name || '',
           company_name: user?.company_name || 'ConstructIQ',
         });
-        await base44.integrations.Core.SendEmail({ to: inv.email, subject, body });
+        const htmlBody = buildEmailHtml(body, emailBranding);
+        await base44.integrations.Core.SendEmail({ to: inv.email, subject, body: htmlBody });
         sent++;
       } catch (_e) {}
     }
@@ -88,7 +94,8 @@ export default function OutcomePanel({ tender, onUpdate, onConvert, canManage })
           sender_name: user?.full_name || '',
           company_name: user?.company_name || 'ConstructIQ',
         });
-        await base44.integrations.Core.SendEmail({ to: inv.email, subject, body });
+        const htmlBody = buildEmailHtml(body, emailBranding);
+        await base44.integrations.Core.SendEmail({ to: inv.email, subject, body: htmlBody });
         sent++;
       } catch (_e) {}
     }
@@ -120,7 +127,8 @@ export default function OutcomePanel({ tender, onUpdate, onConvert, canManage })
         sender_name: user?.full_name || '',
         company_name: user?.company_name || 'ConstructIQ',
       });
-      await base44.integrations.Core.SendEmail({ to: inv.email, subject, body });
+      const htmlBody = buildEmailHtml(body, emailBranding);
+      await base44.integrations.Core.SendEmail({ to: inv.email, subject, body: htmlBody });
       toast({ title: `Notification sent to ${inv.full_name}` });
 
       // Update notified_at

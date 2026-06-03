@@ -6,6 +6,7 @@ import PageNotFound from './lib/PageNotFound';
 import { AuthProvider, useAuth } from '@/lib/AuthContext';
 import UserNotRegisteredError from '@/components/UserNotRegisteredError';
 import ProtectedRoute from '@/components/ProtectedRoute';
+import { canAccess } from '@/lib/permissions';
 
 import Login from '@/pages/Login';
 import Register from '@/pages/Register';
@@ -24,6 +25,12 @@ import Settings from '@/pages/Settings.jsx';
 import Tenders from '@/pages/Tenders';
 import TenderDetail from '@/pages/TenderDetail';
 import TenderSubmit from '@/pages/TenderSubmit';
+
+const TendersRoute = ({ children }) => {
+  const { user } = useAuth();
+  if (!canAccess(user, 'tenders')) return <Navigate to="/" replace />;
+  return children;
+};
 
 const AuthenticatedApp = () => {
   const { isLoadingAuth, isLoadingPublicSettings, authError, navigateToLogin } = useAuth();
@@ -64,8 +71,8 @@ const AuthenticatedApp = () => {
           <Route path="/rfis" element={<RFIs />} />
           <Route path="/rfis/:id" element={<RFIDetail />} />
           <Route path="/programme" element={<Programme />} />
-          <Route path="/tenders" element={<Tenders />} />
-          <Route path="/tenders/:id" element={<TenderDetail />} />
+          <Route path="/tenders" element={<TendersRoute><Tenders /></TendersRoute>} />
+          <Route path="/tenders/:id" element={<TendersRoute><TenderDetail /></TendersRoute>} />
           <Route path="/settings" element={<Settings />} />
         </Route>
       </Route>

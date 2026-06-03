@@ -11,7 +11,8 @@ import { Switch } from '@/components/ui/switch';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
-import { Save, Shield, Bell, Mail, Palette, Tag, RefreshCw } from 'lucide-react';
+import { Save, Shield, Bell, Mail, Palette, Tag, RefreshCw, Trash2 } from 'lucide-react';
+import { useToast } from '@/components/ui/use-toast';
 import PageHeader from '@/components/shared/PageHeader';
 import { DEFAULT_TEMPLATES } from '@/lib/emailTemplates';
 import { isAdmin as checkAdmin } from '@/lib/permissions';
@@ -29,6 +30,7 @@ const ROLES = [
 
 export default function Settings() {
   const { user } = useAuth();
+  const { toast } = useToast();
   const queryClient = useQueryClient();
 
   const [profile, setProfile] = useState({
@@ -39,6 +41,7 @@ export default function Settings() {
   const [inviteEmail, setInviteEmail] = useState('');
   const [inviteRole, setInviteRole] = useState('external');
   const [editingTemplate, setEditingTemplate] = useState(null);
+  const [deleteStep, setDeleteStep] = useState(0);
 
   const { data: users = [] } = useQuery({
     queryKey: ['users'],
@@ -117,6 +120,18 @@ export default function Settings() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['emailTemplates'] });
     },
+  });
+
+  const deleteAccountMutation = useMutation({
+    mutationFn: async () => {
+      await base44.entities.User.delete(user.id);
+      await base44.auth.logout();
+    },
+    onSuccess: () => { window.location.href = '/login'; },
+    onError: (e) => {
+      toast({ title: 'Failed to delete account', description: e.message, variant: 'destructive', duration: 8000 });
+      setDeleteStep(0);
+    }
   });
 
   const isAdmin = checkAdmin(user);
@@ -227,6 +242,55 @@ export default function Settings() {
                 <Save className="w-4 h-4" />
                 {profileMutation.isPending ? 'Saving...' : 'Save Changes'}
               </Button>
+
+              <div className="border-t border-destructive/20 mt-6 pt-6">
+                <p className="text-sm font-medium text-destructive mb-1">Danger Zone</p>
+                <p className="text-xs text-muted-foreground mb-4">
+                  Permanently delete your account. This cannot be undone.
+                </p>
+                {deleteStep === 0 && (
+                  <Button variant="outline"
+                    className="border-destructive text-destructive hover:bg-destructive hover:text-destructive-foreground"
+                    onClick={() => setDeleteStep(1)}>
+                    Delete my account
+                  </Button>
+                )}
+                {deleteStep === 1 && (
+                  <div className="bg-destructive/5 border border-destructive/30 rounded-lg p-4 space-y-3">
+                    <p className="text-sm font-medium text-destructive">Are you sure?</p>
+                    <p className="text-xs text-muted-foreground">
+                      You will be permanently removed. Any projects or RFIs you created will
+                      remain but will no longer be associated with your account.
+                    </p>
+                    <div className="flex gap-2">
+                      <Button variant="outline" size="sm" onClick={() => setDeleteStep(0)}>Cancel</Button>
+                      <Button variant="destructive" size="sm" onClick={() => setDeleteStep(2)}>
+                        Yes, delete my account
+                      </Button>
+                    </div>
+                  </div>
+                )}
+                {deleteStep === 2 && (
+                  <div className="bg-destructive/10 border-2 border-destructive rounded-lg p-4 space-y-3">
+                    <p className="text-sm font-bold text-destructive">
+                      Final confirmation — permanent and irreversible.
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      Account for <strong>{user?.email}</strong> will be deleted immediately.
+                    </p>
+                    <div className="flex gap-2">
+                      <Button variant="outline" size="sm" onClick={() => setDeleteStep(0)}>
+                        Cancel — keep my account
+                      </Button>
+                      <Button variant="destructive" size="sm"
+                        disabled={deleteAccountMutation.isPending}
+                        onClick={() => deleteAccountMutation.mutate()}>
+                        {deleteAccountMutation.isPending ? 'Deleting...' : 'Permanently delete my account'}
+                      </Button>
+                    </div>
+                  </div>
+                )}
+              </div>
             </CardContent>
           </Card>
         </TabsContent>

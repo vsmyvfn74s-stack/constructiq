@@ -12,7 +12,7 @@ import { Input } from '@/components/ui/input';
 import PageHeader from '@/components/shared/PageHeader';
 import StatusBadge from '@/components/shared/StatusBadge';
 import { format } from 'date-fns';
-import { resolveTemplate, applyTemplate } from '@/lib/emailTemplates';
+import { resolveTemplate, applyTemplate, buildEmailHtml } from '@/lib/emailTemplates';
 
 export default function RFIDetail() {
   const { id } = useParams();
@@ -29,9 +29,17 @@ export default function RFIDetail() {
     queryFn: () => base44.entities.RFI.filter({ id }, '-created_date', 1).then(results => results[0] ?? null),
   });
 
-  const { data: projects = [] } = useQuery({
-    queryKey: ['projects'],
-    queryFn: () => base44.entities.Project.list('-created_date', 100),
+  const { data: project } = useQuery({
+    queryKey: ['project', rfi?.project_id],
+    queryFn: () => rfi?.project_id
+      ? base44.entities.Project.filter({ id: rfi.project_id }, '-created_date', 1).then(r => r[0] ?? null)
+      : null,
+    enabled: !!rfi?.project_id,
+  });
+
+  const { data: emailBranding = {} } = useQuery({
+    queryKey: ['emailBranding'],
+    queryFn: () => base44.entities.EmailBranding.list().then(r => r[0] ?? {}),
   });
 
   const { data: emailTemplates = [] } = useQuery({
@@ -39,9 +47,12 @@ export default function RFIDetail() {
     queryFn: () => base44.entities.EmailTemplate.list(),
   });
 
+  const showReplyForm = rfi?.status !== 'Closed';
+
   const { data: registeredUsers = [] } = useQuery({
     queryKey: ['users'],
     queryFn: () => base44.entities.User.list(),
+    enabled: showReplyForm,
   });
 
   const isOwner = rfi?.created_by_email === user?.email || (!rfi?.created_by_email && isAdminOrInternal);
@@ -89,6 +100,7 @@ export default function RFIDetail() {
         response_text: response,
         url: rfiUrl,
       });
+      const htmlBody = buildEmailHtml(body, emailBranding);
 
       const notifyEmails = new Set();
       if (rfi?.created_by_email && rfi.created_by_email !== user?.email) notifyEmails.add(rfi.created_by_email);
@@ -97,7 +109,7 @@ export default function RFIDetail() {
 
       notifyEmails.forEach(email => {
         if (registeredUsers.some(u => u.email?.toLowerCase() === email?.toLowerCase())) {
-          base44.integrations.Core.SendEmail({ to: email, subject, body }).catch(() => {});
+          base44.integrations.Core.SendEmail({ to: email, subject, body: htmlBody }).catch(() => {});
         }
       });
     },
@@ -116,7 +128,7 @@ export default function RFIDetail() {
     return <div className="text-center py-16"><p className="text-muted-foreground">RFI not found</p></div>;
   }
 
-  const projectName = projects.find(p => p.id === rfi.project_id)?.name || '';
+  const projectName = project?.name || '';
 
   // Back navigation: go back to the project view if we came from a project
   const handleBack = () => navigate(-1);
@@ -267,7 +279,7 @@ export default function RFIDetail() {
           ))}
 
           {/* Reply form — visible if not closed */}
-          {rfi.status !== 'Closed' && (
+          {showReplyForm && (
             <div className="border-t pt-4">
               <Textarea
                 placeholder="Type your response..."

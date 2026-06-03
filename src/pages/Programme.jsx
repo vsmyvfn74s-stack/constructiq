@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { base44 } from '@/api/base44Client';
 import { useAuth } from '@/lib/AuthContext';
+import { canEdit } from '@/lib/permissions';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
@@ -31,7 +32,7 @@ const ZOOM_LEVELS = ['year', 'quarter', 'month', 'week', 'day'];
 export default function Programme() {
   const { user } = useAuth();
   const isAdmin = user?.role === 'admin';
-  const isAllowed = ['admin', 'internal', 'pricing'].includes(user?.role);
+  const isAllowed = canEdit(user, 'programme');
 
   const urlParams = new URLSearchParams(window.location.search);
   const projectFromUrl = urlParams.get('project') || 'all';

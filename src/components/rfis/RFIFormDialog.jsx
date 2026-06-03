@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useAuth } from '@/lib/AuthContext';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { base44 } from '@/api/base44Client';
-import { resolveTemplate, applyTemplate } from '@/lib/emailTemplates';
+import { resolveTemplate, applyTemplate, buildEmailHtml } from '@/lib/emailTemplates';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -29,6 +29,11 @@ export default function RFIFormDialog({ open, onOpenChange, projects = [], defau
   const { data: emailTemplates = [] } = useQuery({
     queryKey: ['emailTemplates'],
     queryFn: () => base44.entities.EmailTemplate.list(),
+  });
+
+  const { data: emailBranding = {} } = useQuery({
+    queryKey: ['emailBranding'],
+    queryFn: () => base44.entities.EmailBranding.list().then(r => r[0] ?? {}),
   });
 
   const selectedProject = projects.find(p => p.id === form.project_id);
@@ -85,7 +90,8 @@ export default function RFIFormDialog({ open, onOpenChange, projects = [], defau
           description: data.description || 'No description provided',
           url: rfiUrl,
         });
-        base44.integrations.Core.SendEmail({ to: assignee.email, subject, body }).catch(() => {});
+        const htmlBody = buildEmailHtml(body, emailBranding);
+        base44.integrations.Core.SendEmail({ to: assignee.email, subject, body: htmlBody }).catch(() => {});
       });
       return rfi;
     },

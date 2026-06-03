@@ -74,7 +74,9 @@ export default function Documents() {
     if (!uploadForm.file || !uploadForm.name || !uploadForm.project_id) return;
     setUploading(true);
     try {
-      const folder = uploadForm.folder === '__new__' ? newFolder.trim() : uploadForm.folder;
+      const folder = uploadForm.folder === '__new__'
+        ? newFolder.trim()
+        : (uploadForm.folder || undefined);
       const { file_url } = await base44.integrations.Core.UploadFile({ file: uploadForm.file });
       await base44.entities.Document.create({
         name: uploadForm.name,

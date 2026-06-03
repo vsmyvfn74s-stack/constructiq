@@ -9,7 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Plus, Trash2, Users, UserCheck, Pencil } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
-import { resolveTemplate, applyTemplate } from '@/lib/emailTemplates';
+import { resolveTemplate, applyTemplate, buildEmailHtml } from '@/lib/emailTemplates';
 
 const DEFAULT_ROLES = [
   'Architect', 'Client', 'External Project Manager',
@@ -57,6 +57,11 @@ export default function TeamManager({ project }) {
   const { data: emailTemplates = [] } = useQuery({
     queryKey: ['emailTemplates'],
     queryFn: () => base44.entities.EmailTemplate.list(),
+  });
+
+  const { data: emailBranding = {} } = useQuery({
+    queryKey: ['emailBranding'],
+    queryFn: () => base44.entities.EmailBranding.list().then(r => r[0] ?? {}),
   });
 
   const updateMutation = useMutation({
@@ -117,7 +122,8 @@ export default function TeamManager({ project }) {
           role: member.role,
         });
         try {
-          await base44.integrations.Core.SendEmail({ to: member.user_email, subject, body });
+          const htmlBody = buildEmailHtml(body, emailBranding);
+          await base44.integrations.Core.SendEmail({ to: member.user_email, subject, body: htmlBody });
         } catch (e) {
           // Email failed — not critical
         }

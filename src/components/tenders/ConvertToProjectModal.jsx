@@ -7,6 +7,7 @@ import { Label } from '@/components/ui/label';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { CheckCircle2, ArrowRight } from 'lucide-react';
+import { Link } from 'react-router-dom';
 import { useToast } from '@/components/ui/use-toast';
 import { useQueryClient } from '@tanstack/react-query';
 
@@ -16,6 +17,7 @@ export default function ConvertToProjectModal({ tender, open, onOpenChange }) {
   const queryClient = useQueryClient();
   const [converting, setConverting] = useState(false);
 
+  const alreadyConverted = !!tender?.converted_project_id;
   const awardedSubs = (tender.invitees || []).filter(i => i.status === 'Awarded');
 
   const [projectName, setProjectName] = useState(tender.title || '');
@@ -97,6 +99,26 @@ export default function ConvertToProjectModal({ tender, open, onOpenChange }) {
     }
   };
 
+  if (alreadyConverted) {
+    return (
+      <Dialog open={open} onOpenChange={onOpenChange}>
+        <DialogContent className="sm:max-w-sm">
+          <div className="p-8 text-center space-y-4">
+            <div className="w-12 h-12 rounded-full bg-green-100 flex items-center justify-center mx-auto">
+              <CheckCircle2 className="w-6 h-6 text-green-600" />
+            </div>
+            <p className="font-medium text-gray-900">
+              This tender has already been converted to a project.
+            </p>
+            <Button asChild variant="outline" onClick={() => onOpenChange(false)}>
+              <Link to={`/projects/${tender.converted_project_id}`}>View Project →</Link>
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+    );
+  }
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-lg max-h-[90vh] overflow-y-auto">
@@ -170,7 +192,7 @@ export default function ConvertToProjectModal({ tender, open, onOpenChange }) {
 
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
-          <Button onClick={handleConvert} disabled={converting || !projectName} className="gap-2">
+          <Button onClick={handleConvert} disabled={converting || !projectName || alreadyConverted} className="gap-2">
             {converting ? 'Creating...' : <><ArrowRight className="w-4 h-4" /> Create Project</>}
           </Button>
         </DialogFooter>

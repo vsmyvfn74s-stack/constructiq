@@ -19,9 +19,9 @@ const MODULE_RULES = {
   },
   projects: {
     access: ['admin', 'pricing', 'internal', 'external'],
-    edit:   ['admin', 'internal'],
+    edit:   ['admin', 'pricing', 'internal'],
     delete: ['admin'],
-    manage: ['admin', 'internal'],
+    manage: ['admin', 'pricing', 'internal'],
   },
   documents: {
     access: ['admin', 'pricing', 'internal', 'external'],

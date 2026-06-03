@@ -247,6 +247,19 @@ export default function SubmissionScorer({ tender, onUpdate, canManage }) {
         )}
       </Card>
 
+      {/* Weight warning — always visible if misconfigured */}
+      {totalWeight !== 100 && (
+        <div className="flex items-center gap-2 p-3 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-800">
+          <AlertTriangle className="w-4 h-4 flex-shrink-0" />
+          <span>
+            Scoring criteria weights total <strong>{totalWeight}%</strong> — they must equal 100% before scores are meaningful.{' '}
+            <button className="underline font-medium" onClick={() => setShowCriteria(true)}>
+              Fix in Configure Scoring ↓
+            </button>
+          </span>
+        </div>
+      )}
+
       {/* Submissions table */}
       {submitted.length === 0 ? (
         <div className="text-center py-10 text-muted-foreground text-sm">No submissions received yet</div>

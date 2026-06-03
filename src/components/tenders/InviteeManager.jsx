@@ -10,7 +10,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 import { Users, Plus, Trash2, Send, UserCheck } from 'lucide-react';
 import { useToast } from '@/components/ui/use-toast';
-import { resolveTemplate, applyTemplate } from '@/lib/emailTemplates';
+import { resolveTemplate, applyTemplate, buildEmailHtml } from '@/lib/emailTemplates';
 function uuidv4() {
   return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
     const r = Math.random() * 16 | 0;
@@ -56,6 +56,11 @@ export default function InviteeManager({ tender, onUpdate, canManage }) {
     queryFn: () => base44.entities.EmailTemplate.list(),
   });
 
+  const { data: emailBranding = {} } = useQuery({
+    queryKey: ['emailBranding'],
+    queryFn: () => base44.entities.EmailBranding.list().then(r => r[0] ?? {}),
+  });
+
   const invitees = tender.invitees || [];
 
   const handleSearch = (val) => {
@@ -82,7 +87,7 @@ export default function InviteeManager({ tender, onUpdate, canManage }) {
 
   const addInvitee = async () => {
     if (!form.full_name) return;
-    const newInvitee = { ...form, id: uuidv4(), status: 'Invited', invited_at: null, submission: null };
+    const newInvitee = { ...form, id: uuidv4(), token: uuidv4(), status: 'Pending', invited_at: null, submission: null };
     await onUpdate({ invitees: [...invitees, newInvitee] });
 
     if (saveToDirectory && form.full_name) {
@@ -113,12 +118,23 @@ export default function InviteeManager({ tender, onUpdate, canManage }) {
     try {
       const tpl = resolveTemplate(emailTemplates, 'tender_invitation');
       const appUrl = window.location.origin;
-      const updatedInvitees = invitees.map(inv => {
-        const token = inv.token || uuidv4();
-        return { ...inv, token, status: 'Invited', invited_at: new Date().toISOString() };
+
+      // Step 1 — Assign tokens and set status FIRST
+      const updatedInvitees = invitees.map(inv => ({
+        ...inv,
+        token: inv.token || uuidv4(),
+        status: 'Invited',
+        invited_at: new Date().toISOString(),
+      }));
+
+      // Step 2 — Save to DB so tokens exist before links are emailed
+      await onUpdate({
+        invitees: updatedInvitees,
+        status: 'Issued',
+        issue_date: new Date().toISOString().split('T')[0],
       });
 
-      // Send emails
+      // Step 3 — THEN send emails (links now resolve correctly)
       let sent = 0;
       for (const inv of updatedInvitees) {
         if (!inv.email) continue;
@@ -139,18 +155,15 @@ export default function InviteeManager({ tender, onUpdate, canManage }) {
             submission_link: submissionLink,
             sender_name: user?.full_name || '',
           });
-          await base44.integrations.Core.SendEmail({ to: inv.email, subject, body });
+          const htmlBody = buildEmailHtml(body, emailBranding);
+          await base44.integrations.Core.SendEmail({ to: inv.email, subject, body: htmlBody });
           sent++;
         } catch (_e) { /* non-blocking */ }
       }
 
-      await onUpdate({
-        invitees: updatedInvitees,
-        status: 'Issued',
-        issue_date: new Date().toISOString().split('T')[0],
-      });
-
-      toast({ title: `Tender issued to ${sent} subcontractor${sent !== 1 ? 's' : ''}` });
+      toast({ title: `Tender issued to ${sent} subcontractor${sent !== 1 ? 's' : ''}`, duration: 4000 });
+    } catch (err) {
+      toast({ title: 'Failed to issue tender', description: err.message, variant: 'destructive', duration: 8000 });
     } finally {
       setIssuing(false);
       setShowIssueConfirm(false);

@@ -4,6 +4,7 @@ import { base44 } from '@/api/base44Client';
 import { useAuth } from '@/lib/AuthContext';
 import { Link } from 'react-router-dom';
 import { Plus, Search, Calendar, Trash2 } from 'lucide-react';
+import { canEdit } from '@/lib/permissions';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent } from '@/components/ui/card';
@@ -19,8 +20,7 @@ import { FolderKanban } from 'lucide-react';
 export default function Projects() {
   const { user } = useAuth();
   const isAdmin = user?.role === 'admin';
-  const isInternal = user?.role === 'internal';
-  const isAllowed = ['admin', 'internal', 'pricing'].includes(user?.role);
+  const isAllowed = canEdit(user, 'projects');
   const canDelete = isAllowed;
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
