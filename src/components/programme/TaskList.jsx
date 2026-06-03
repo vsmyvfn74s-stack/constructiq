@@ -31,6 +31,7 @@ export default function TaskList({ tasks, onTaskClick, onAddTask, collapsed, can
   const [editingId, setEditingId] = useState(null);
   const [editValues, setEditValues] = useState({});
   const [adjustingId, setAdjustingId] = useState(null);
+  const [adjustingCompletionId, setAdjustingCompletionId] = useState(null);
   const queryClient = useQueryClient();
 
   // Run the scheduling engine to get live-resolved dates for all tasks
@@ -76,16 +77,21 @@ export default function TaskList({ tasks, onTaskClick, onAddTask, collapsed, can
   }, [tasks, expandedIds]);
 
   const adjustCompletion = async (task, delta) => {
+    if (adjustingCompletionId === task.id) return;
     const newPct = Math.min(100, Math.max(0, (task.percent_complete || 0) + delta));
+    setAdjustingCompletionId(task.id);
     onPushHistory?.(
       [{ id: task.id, data: { percent_complete: task.percent_complete || 0 } }],
       [{ id: task.id, data: { percent_complete: newPct } }],
     );
     await base44.entities.Task.update(task.id, { percent_complete: newPct });
     queryClient.invalidateQueries({ queryKey: ['tasks'] });
+    setAdjustingCompletionId(null);
   };
 
   const adjustDays = async (task, delta) => {
+    // Prevent concurrent calls for the same task
+    if (adjustingId === task.id) return;
     const newDuration = Math.max(1, (task.duration || 1) + delta);
     const newEnd = task.start_date
       ? format(addDays(new Date(task.start_date), newDuration - 1), 'yyyy-MM-dd')
@@ -292,6 +298,7 @@ export default function TaskList({ tasks, onTaskClick, onAddTask, collapsed, can
                     <button
                       className="w-4 h-4 flex items-center justify-center rounded border border-border hover:bg-muted text-muted-foreground disabled:opacity-40 opacity-0 group-hover:opacity-100 transition-opacity"
                       onClick={e => { e.stopPropagation(); adjustCompletion(task, -5); }}
+                      disabled={adjustingCompletionId === task.id}
                       title="Remove 5%"
                     >
                       <Minus className="w-2 h-2" />
@@ -300,6 +307,7 @@ export default function TaskList({ tasks, onTaskClick, onAddTask, collapsed, can
                     <button
                       className="w-4 h-4 flex items-center justify-center rounded border border-border hover:bg-muted text-muted-foreground disabled:opacity-40 opacity-0 group-hover:opacity-100 transition-opacity"
                       onClick={e => { e.stopPropagation(); adjustCompletion(task, 5); }}
+                      disabled={adjustingCompletionId === task.id}
                       title="Add 5%"
                     >
                       <Plus className="w-2 h-2" />
