@@ -354,6 +354,7 @@ export default function Programme() {
             <div className="w-[520px] xl:w-[600px] flex-shrink-0 overflow-hidden">
               <TaskList
                 tasks={tasks}
+                allTasks={accessibleTasks}
                 onTaskClick={setSelectedTask}
                 collapsed={false}
                 canEdit={isAdmin || user?.role === 'internal'}

@@ -7,7 +7,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Plus, Trash2, Users, UserCheck } from 'lucide-react';
+import { Plus, Trash2, Users, UserCheck, Pencil } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { resolveTemplate, applyTemplate } from '@/lib/emailTemplates';
 
@@ -32,6 +32,8 @@ export default function TeamManager({ project }) {
   const [customTrade, setCustomTrade] = useState('');
   const [emailInput, setEmailInput] = useState('');
   const [suggestions, setSuggestions] = useState([]);
+  const [editingIndex, setEditingIndex] = useState(null);
+  const [editValues, setEditValues] = useState({});
   const queryClient = useQueryClient();
 
   const { data: allUsers = [] } = useQuery({
@@ -148,6 +150,23 @@ export default function TeamManager({ project }) {
     updateMutation.mutate(team);
   };
 
+  const startEdit = (index) => {
+    setEditingIndex(index);
+    setEditValues({ ...(project.team || [])[index] });
+  };
+
+  const saveEdit = () => {
+    const team = (project.team || []).map((m, i) => i === editingIndex ? { ...editValues } : m);
+    updateMutation.mutate(team);
+    setEditingIndex(null);
+    setEditValues({});
+  };
+
+  const cancelEdit = () => {
+    setEditingIndex(null);
+    setEditValues({});
+  };
+
   if (!isAllowed) {
     return (
       <Card>
@@ -191,27 +210,74 @@ export default function TeamManager({ project }) {
           <div className="space-y-2">
             {(project.team || []).map((member, i) => {
               const isRegistered = allUsers.some(u => u.email?.toLowerCase() === member.user_email?.toLowerCase());
+              const isEditing = editingIndex === i;
               return (
-                <div key={i} className="flex items-center justify-between p-3 bg-muted/50 rounded-lg">
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span className="font-medium text-sm">{member.full_name}</span>
-                      <Badge variant="outline" className="text-xs">{member.role}</Badge>
-                      {member.trade && <Badge variant="secondary" className="text-xs">{member.trade}</Badge>}
-                      {member.user_email && !isRegistered && (
-                        <Badge variant="secondary" className="text-xs text-amber-600 bg-amber-50">Invite Pending</Badge>
-                      )}
-                      {member.user_email && isRegistered && (
-                        <UserCheck className="w-3.5 h-3.5 text-green-600" />
-                      )}
+                <div key={i} className={`p-3 rounded-lg border ${isEditing ? 'bg-primary/5 border-primary/20' : 'bg-muted/50 border-transparent'}`}>
+                  {isEditing ? (
+                    <div className="space-y-2">
+                      <div className="grid grid-cols-2 gap-2">
+                        <div>
+                          <Label className="text-xs">Full Name</Label>
+                          <Input className="h-8 text-xs" value={editValues.full_name || ''} onChange={e => setEditValues(v => ({ ...v, full_name: e.target.value }))} />
+                        </div>
+                        <div>
+                          <Label className="text-xs">Role</Label>
+                          <Select value={editValues.role || ''} onValueChange={val => setEditValues(v => ({ ...v, role: val }))}>
+                            <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                            <SelectContent>{ROLES.map(r => <SelectItem key={r} value={r}>{r}</SelectItem>)}</SelectContent>
+                          </Select>
+                        </div>
+                        <div>
+                          <Label className="text-xs">Phone</Label>
+                          <Input className="h-8 text-xs" value={editValues.phone || ''} onChange={e => setEditValues(v => ({ ...v, phone: e.target.value }))} />
+                        </div>
+                        <div>
+                          <Label className="text-xs">Business Name</Label>
+                          <Input className="h-8 text-xs" value={editValues.business_name || ''} onChange={e => setEditValues(v => ({ ...v, business_name: e.target.value }))} />
+                        </div>
+                        {editValues.role === 'Subcontractor' && (
+                          <div>
+                            <Label className="text-xs">Trade</Label>
+                            <Select value={editValues.trade || ''} onValueChange={val => setEditValues(v => ({ ...v, trade: val }))}>
+                              <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Select trade" /></SelectTrigger>
+                              <SelectContent>{TRADES.map(t => <SelectItem key={t} value={t}>{t}</SelectItem>)}</SelectContent>
+                            </Select>
+                          </div>
+                        )}
+                      </div>
+                      <div className="flex gap-2">
+                        <Button size="sm" className="h-7 text-xs gap-1" onClick={saveEdit} disabled={updateMutation.isPending}>Save</Button>
+                        <Button size="sm" variant="outline" className="h-7 text-xs" onClick={cancelEdit}>Cancel</Button>
+                      </div>
                     </div>
-                    <div className="text-xs text-muted-foreground mt-0.5">
-                      {[member.business_name, member.user_email, member.phone].filter(Boolean).join(' · ')}
+                  ) : (
+                    <div className="flex items-center justify-between">
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="font-medium text-sm">{member.full_name}</span>
+                          <Badge variant="outline" className="text-xs">{member.role}</Badge>
+                          {member.trade && <Badge variant="secondary" className="text-xs">{member.trade}</Badge>}
+                          {member.user_email && !isRegistered && (
+                            <Badge variant="secondary" className="text-xs text-amber-600 bg-amber-50">Invite Pending</Badge>
+                          )}
+                          {member.user_email && isRegistered && (
+                            <UserCheck className="w-3.5 h-3.5 text-green-600" />
+                          )}
+                        </div>
+                        <div className="text-xs text-muted-foreground mt-0.5">
+                          {[member.business_name, member.user_email, member.phone].filter(Boolean).join(' · ')}
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-1 flex-shrink-0">
+                        <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => startEdit(i)}>
+                          <Pencil className="w-3.5 h-3.5 text-muted-foreground" />
+                        </Button>
+                        <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => removeMember(i)}>
+                          <Trash2 className="w-4 h-4 text-destructive" />
+                        </Button>
+                      </div>
                     </div>
-                  </div>
-                  <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => removeMember(i)}>
-                    <Trash2 className="w-4 h-4 text-destructive" />
-                  </Button>
+                  )}
                 </div>
               );
             })}

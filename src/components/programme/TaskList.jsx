@@ -5,7 +5,7 @@ import { base44 } from '@/api/base44Client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
-import { addDays, differenceInCalendarDays, format } from 'date-fns';
+import { differenceInCalendarDays, format } from 'date-fns';
 import { cascadeTaskDates } from '@/lib/cascadeTaskDates';
 import { runScheduleEngine } from '@/lib/schedulingEngine';
 import { flattenTasks } from '@/lib/flattenTasks';
@@ -26,7 +26,20 @@ const DEP_TYPE_BADGE = {
   SF: 'bg-purple-100 text-purple-700',
 };
 
-export default function TaskList({ tasks, onTaskClick, onAddTask, collapsed, canEdit = false, scrollRef, onScroll, onPushHistory }) {
+// Working-day end date calculation (skip weekends) — shared by adjustDays and commitEdit
+function calcWorkingEnd(startStr, duration) {
+  if (!startStr) return null;
+  let date = new Date(startStr + 'T00:00:00');
+  let added = 0;
+  while (added < duration - 1) {
+    date.setDate(date.getDate() + 1);
+    const dow = date.getDay();
+    if (dow !== 0 && dow !== 6) added++;
+  }
+  return date.toISOString().split('T')[0];
+}
+
+export default function TaskList({ tasks, allTasks, onTaskClick, onAddTask, collapsed, canEdit = false, scrollRef, onScroll, onPushHistory }) {
   const [expandedIds, setExpandedIds] = useState(new Set(tasks.filter(t => t.level === 0).map(t => t.id)));
   const [editingId, setEditingId] = useState(null);
   const [editValues, setEditValues] = useState({});
@@ -90,20 +103,28 @@ export default function TaskList({ tasks, onTaskClick, onAddTask, collapsed, can
   };
 
   const adjustDays = async (task, delta) => {
-    // Prevent concurrent calls for the same task
     if (adjustingId === task.id) return;
-    const newDuration = Math.max(1, (task.duration || 1) + delta);
-    const newEnd = task.start_date
-      ? format(addDays(new Date(task.start_date), newDuration - 1), 'yyyy-MM-dd')
-      : task.end_date;
     setAdjustingId(task.id);
-    onPushHistory?.(
-      [{ id: task.id, data: { duration: task.duration, end_date: task.end_date } }],
-      [{ id: task.id, data: { duration: newDuration, end_date: newEnd } }],
-    );
-    await base44.entities.Task.update(task.id, { duration: newDuration, end_date: newEnd });
-    queryClient.invalidateQueries({ queryKey: ['tasks'] });
-    setAdjustingId(null);
+    try {
+      const newDuration = Math.max(1, (task.duration || 1) + delta);
+      const newEnd = calcWorkingEnd(task.start_date, newDuration) || task.end_date;
+
+      onPushHistory?.(
+        [{ id: task.id, data: { duration: task.duration, end_date: task.end_date } }],
+        [{ id: task.id, data: { duration: newDuration, end_date: newEnd } }],
+      );
+
+      await base44.entities.Task.update(task.id, { duration: newDuration, end_date: newEnd });
+
+      const mergedTasks = (allTasks || tasks).map(t =>
+        t.id === task.id ? { ...t, duration: newDuration, end_date: newEnd } : t
+      );
+      await cascadeTaskDates(task.id, mergedTasks, (id, data) => base44.entities.Task.update(id, data));
+
+      queryClient.invalidateQueries({ queryKey: ['tasks'] });
+    } finally {
+      setAdjustingId(null);
+    }
   };
 
   if (collapsed) return null;
@@ -132,7 +153,7 @@ export default function TaskList({ tasks, onTaskClick, onAddTask, collapsed, can
     const v = editValues;
     let finalData = { ...v };
     if (v.start_date && v.duration) {
-      finalData.end_date = format(addDays(new Date(v.start_date), parseInt(v.duration) - 1), 'yyyy-MM-dd');
+      finalData.end_date = calcWorkingEnd(v.start_date, parseInt(v.duration)) || v.end_date;
     } else if (v.start_date && v.end_date) {
       finalData.duration = differenceInCalendarDays(new Date(v.end_date), new Date(v.start_date)) + 1;
     }
@@ -154,9 +175,9 @@ export default function TaskList({ tasks, onTaskClick, onAddTask, collapsed, can
   const handleFieldChange = (field, value) => {
     const updated = { ...editValues, [field]: value };
     if (field === 'start_date' && updated.duration) {
-      updated.end_date = format(addDays(new Date(value), parseInt(updated.duration) - 1), 'yyyy-MM-dd');
+      updated.end_date = calcWorkingEnd(value, parseInt(updated.duration)) || updated.end_date;
     } else if (field === 'duration' && updated.start_date) {
-      updated.end_date = format(addDays(new Date(updated.start_date), parseInt(value) - 1), 'yyyy-MM-dd');
+      updated.end_date = calcWorkingEnd(updated.start_date, parseInt(value)) || updated.end_date;
     } else if (field === 'end_date' && updated.start_date) {
       updated.duration = differenceInCalendarDays(new Date(value), new Date(updated.start_date)) + 1;
     }
