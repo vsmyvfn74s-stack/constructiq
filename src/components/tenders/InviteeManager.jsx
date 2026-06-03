@@ -10,7 +10,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { AlertDialog, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 import { Users, Plus, Trash2, Send, UserCheck } from 'lucide-react';
 import { useToast } from '@/components/ui/use-toast';
-import { resolveTemplate, applyTemplate, buildEmailHtml } from '@/lib/emailTemplates';
+// Email sending is handled by the sendTenderInvitations backend function (supports external recipients)
 function uuidv4() {
   return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
     const r = Math.random() * 16 | 0;
@@ -51,15 +51,6 @@ export default function InviteeManager({ tender, onUpdate, canManage }) {
     queryFn: () => base44.entities.TenderContact.list('-created_date', 200),
   });
 
-  const { data: emailTemplates = [] } = useQuery({
-    queryKey: ['emailTemplates'],
-    queryFn: () => base44.entities.EmailTemplate.list(),
-  });
-
-  const { data: emailBranding = {} } = useQuery({
-    queryKey: ['emailBranding'],
-    queryFn: () => base44.entities.EmailBranding.list().then(r => r[0] ?? {}),
-  });
 
   const invitees = tender.invitees || [];
 
@@ -119,9 +110,6 @@ export default function InviteeManager({ tender, onUpdate, canManage }) {
   const issueTender = async () => {
     setIssuing(true);
     try {
-      const tpl = resolveTemplate(emailTemplates, 'tender_invitation');
-      const appUrl = window.location.origin;
-
       // Step 1 — Assign tokens; only update status for pending/uninvited ones
       const updatedInvitees = invitees.map(inv => {
         const isPending = !inv.invited_at || inv.status === 'Pending';
@@ -150,41 +138,24 @@ export default function InviteeManager({ tender, onUpdate, canManage }) {
         return;
       }
 
-      // Step 3 — Send emails only to newly invited invitees
+      // Step 3 — Send emails only to newly invited invitees via backend (supports external recipients)
       const toEmail = updatedInvitees.filter(inv => {
-        const wasPending = !invitees.find(i => i.id === inv.id)?.invited_at ||
-          invitees.find(i => i.id === inv.id)?.status === 'Pending';
+        const original = invitees.find(i => i.id === inv.id);
+        const wasPending = !original?.invited_at || original?.status === 'Pending';
         return inv.email && wasPending;
       });
 
       let sent = 0;
       let failed = 0;
 
-      for (const inv of toEmail) {
-        const submissionLink = `${appUrl}/tender-submit/${inv.token}`;
-        try {
-          const { subject, body } = applyTemplate(tpl, {
-            tender_number: tender.tender_number || '',
-            title: tender.title || '',
-            invitee_name: inv.full_name || '',
-            company_name: user?.company_name || emailBranding?.company_name || 'ConstructIQ',
-            location: tender.location || '',
-            closing_date: tender.closing_date || '',
-            trade_packages: (tender.trade_packages || []).join(', '),
-            description: tender.description || '',
-            client_name: tender.client_name || '',
-            architect_name: tender.architect_name || '',
-            project_manager_name: tender.project_manager_name || '',
-            submission_link: submissionLink,
-            sender_name: user?.full_name || emailBranding?.sender_name || '',
-          });
-          const htmlBody = buildEmailHtml(body, emailBranding);
-          await base44.integrations.Core.SendEmail({ to: inv.email, subject, body: htmlBody });
-          sent++;
-        } catch (e) {
-          failed++;
-          console.error('Email send failed for', inv.email, e);
-        }
+      if (toEmail.length > 0) {
+        const result = await base44.functions.invoke('sendTenderInvitations', {
+          tenderId: tender.id,
+          inviteeIds: toEmail.map(i => i.id),
+          appUrl: window.location.origin,
+        });
+        sent = result.data?.sent ?? 0;
+        failed = result.data?.failed ?? 0;
       }
 
       if (sent > 0) {
