@@ -7,7 +7,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Checkbox } from '@/components/ui/checkbox';
-import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
+import { AlertDialog, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 import { Users, Plus, Trash2, Send, UserCheck } from 'lucide-react';
 import { useToast } from '@/components/ui/use-toast';
 import { resolveTemplate, applyTemplate, buildEmailHtml } from '@/lib/emailTemplates';
@@ -113,38 +113,61 @@ export default function InviteeManager({ tender, onUpdate, canManage }) {
     await onUpdate({ invitees: invitees.filter(i => i.id !== id) });
   };
 
+  // Only email invitees that haven't been invited yet (Pending status), or all if re-issuing to new ones
+  const pendingInvitees = invitees.filter(inv => !inv.invited_at || inv.status === 'Pending');
+
   const issueTender = async () => {
     setIssuing(true);
     try {
       const tpl = resolveTemplate(emailTemplates, 'tender_invitation');
       const appUrl = window.location.origin;
 
-      // Step 1 — Assign tokens and set status FIRST
-      const updatedInvitees = invitees.map(inv => ({
-        ...inv,
-        token: inv.token || uuidv4(),
-        status: 'Invited',
-        invited_at: new Date().toISOString(),
-      }));
-
-      // Step 2 — Save to DB so tokens exist before links are emailed
-      await onUpdate({
-        invitees: updatedInvitees,
-        status: 'Issued',
-        issue_date: new Date().toISOString().split('T')[0],
+      // Step 1 — Assign tokens; only update status for pending/uninvited ones
+      const updatedInvitees = invitees.map(inv => {
+        const isPending = !inv.invited_at || inv.status === 'Pending';
+        return {
+          ...inv,
+          token: inv.token || uuidv4(),
+          status: isPending ? 'Invited' : inv.status,
+          invited_at: isPending ? new Date().toISOString() : inv.invited_at,
+        };
       });
 
-      // Step 3 — THEN send emails (links now resolve correctly)
+      // Step 2 — Save to DB first (separate try so email loop still runs if save succeeds)
+      try {
+        await onUpdate({
+          invitees: updatedInvitees,
+          status: 'Issued',
+          issue_date: tender.issue_date || new Date().toISOString().split('T')[0],
+        });
+      } catch (saveErr) {
+        toast({
+          title: 'Failed to save tender — emails not sent',
+          description: saveErr?.message,
+          variant: 'destructive',
+          duration: 8000,
+        });
+        return;
+      }
+
+      // Step 3 — Send emails only to newly invited invitees
+      const toEmail = updatedInvitees.filter(inv => {
+        const wasPending = !invitees.find(i => i.id === inv.id)?.invited_at ||
+          invitees.find(i => i.id === inv.id)?.status === 'Pending';
+        return inv.email && wasPending;
+      });
+
       let sent = 0;
-      for (const inv of updatedInvitees) {
-        if (!inv.email) continue;
+      let failed = 0;
+
+      for (const inv of toEmail) {
         const submissionLink = `${appUrl}/tender-submit/${inv.token}`;
         try {
           const { subject, body } = applyTemplate(tpl, {
             tender_number: tender.tender_number || '',
             title: tender.title || '',
             invitee_name: inv.full_name || '',
-            company_name: user?.company_name || 'ConstructIQ',
+            company_name: user?.company_name || emailBranding?.company_name || 'ConstructIQ',
             location: tender.location || '',
             closing_date: tender.closing_date || '',
             trade_packages: (tender.trade_packages || []).join(', '),
@@ -153,17 +176,33 @@ export default function InviteeManager({ tender, onUpdate, canManage }) {
             architect_name: tender.architect_name || '',
             project_manager_name: tender.project_manager_name || '',
             submission_link: submissionLink,
-            sender_name: user?.full_name || '',
+            sender_name: user?.full_name || emailBranding?.sender_name || '',
           });
           const htmlBody = buildEmailHtml(body, emailBranding);
           await base44.integrations.Core.SendEmail({ to: inv.email, subject, body: htmlBody });
           sent++;
-        } catch (_e) { /* non-blocking */ }
+        } catch (e) {
+          failed++;
+          console.error('Email send failed for', inv.email, e);
+        }
       }
 
-      toast({ title: `Tender issued to ${sent} subcontractor${sent !== 1 ? 's' : ''}`, duration: 4000 });
-    } catch (err) {
-      toast({ title: 'Failed to issue tender', description: err.message, variant: 'destructive', duration: 8000 });
+      if (sent > 0) {
+        toast({
+          title: `Tender issued — ${sent} email${sent !== 1 ? 's' : ''} sent`,
+          description: failed > 0 ? `${failed} failed to send — check console for details` : undefined,
+          duration: 5000,
+        });
+      } else if (toEmail.length === 0) {
+        toast({ title: 'Tender status updated', description: 'No new invitees to email', duration: 4000 });
+      } else {
+        toast({
+          title: 'Tender saved but no emails were sent',
+          description: 'Check that invitees have valid email addresses',
+          variant: 'destructive',
+          duration: 8000,
+        });
+      }
     } finally {
       setIssuing(false);
       setShowIssueConfirm(false);
@@ -171,18 +210,28 @@ export default function InviteeManager({ tender, onUpdate, canManage }) {
   };
 
   const emailableInvitees = invitees.filter(i => i.email);
+  const newInviteesCount = pendingInvitees.filter(i => i.email).length;
+  // Show issue button for Draft, or re-issue button for Issued when there are pending invitees
+  const showIssueButton = canManage && invitees.length > 0 &&
+    (tender.status === 'Draft' || (tender.status === 'Issued' && pendingInvitees.length > 0));
 
   return (
     <div className="space-y-6">
-      {/* Issue Tender button — show when Draft */}
-      {canManage && tender.status === 'Draft' && invitees.length > 0 && (
+      {/* Issue / Re-issue Tender button */}
+      {showIssueButton && (
         <div className="flex items-center justify-between p-4 bg-blue-50 dark:bg-blue-950/20 rounded-lg border border-blue-200 dark:border-blue-800">
           <div>
-            <p className="text-sm font-medium text-blue-900 dark:text-blue-100">Ready to issue?</p>
-            <p className="text-xs text-blue-700 dark:text-blue-300">{invitees.length} invitee{invitees.length !== 1 ? 's' : ''} added · {emailableInvitees.length} with email addresses</p>
+            <p className="text-sm font-medium text-blue-900 dark:text-blue-100">
+              {tender.status === 'Issued' ? 'New invitees to send' : 'Ready to issue?'}
+            </p>
+            <p className="text-xs text-blue-700 dark:text-blue-300">
+              {tender.status === 'Issued'
+                ? `${pendingInvitees.length} new invitee${pendingInvitees.length !== 1 ? 's' : ''} will receive an invitation email`
+                : `${invitees.length} invitee${invitees.length !== 1 ? 's' : ''} added · ${emailableInvitees.length} with email addresses`}
+            </p>
           </div>
           <Button onClick={() => setShowIssueConfirm(true)} className="gap-2 bg-blue-600 hover:bg-blue-700">
-            <Send className="w-4 h-4" /> Issue Tender
+            <Send className="w-4 h-4" /> {tender.status === 'Issued' ? 'Send to New' : 'Issue Tender'}
           </Button>
         </div>
       )}
@@ -286,18 +335,26 @@ export default function InviteeManager({ tender, onUpdate, canManage }) {
       )}
 
       {/* Issue confirm */}
-      <AlertDialog open={showIssueConfirm} onOpenChange={setShowIssueConfirm}>
+      <AlertDialog open={showIssueConfirm} onOpenChange={(open) => { if (!issuing) setShowIssueConfirm(open); }}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Issue Tender?</AlertDialogTitle>
+            <AlertDialogTitle>{tender.status === 'Issued' ? 'Send to New Invitees?' : 'Issue Tender?'}</AlertDialogTitle>
             <AlertDialogDescription>
-              Send tender invitation to {emailableInvitees.length} subcontractor{emailableInvitees.length !== 1 ? 's' : ''} with email addresses? This will set the tender status to Issued.
+              {tender.status === 'Issued'
+                ? `Send invitation emails to ${newInviteesCount} new invitee${newInviteesCount !== 1 ? 's' : ''}? Previously invited subcontractors will not receive another email.`
+                : `Send tender invitation to ${emailableInvitees.length} subcontractor${emailableInvitees.length !== 1 ? 's' : ''} with email addresses? This will set the tender status to Issued.`}
             </AlertDialogDescription>
           </AlertDialogHeader>
-          <AlertDialogAction onClick={issueTender} disabled={issuing}>
-            {issuing ? 'Issuing...' : 'Issue Tender'}
-          </AlertDialogAction>
-          <AlertDialogCancel>Cancel</AlertDialogCancel>
+          <div className="flex justify-end gap-2 mt-2">
+            <AlertDialogCancel disabled={issuing}>Cancel</AlertDialogCancel>
+            <Button
+              onClick={issueTender}
+              disabled={issuing}
+              className="bg-primary text-primary-foreground hover:bg-primary/90"
+            >
+              {issuing ? 'Sending...' : tender.status === 'Issued' ? 'Send Invitations' : 'Issue Tender'}
+            </Button>
+          </div>
         </AlertDialogContent>
       </AlertDialog>
     </div>
