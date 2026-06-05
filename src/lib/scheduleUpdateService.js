@@ -61,11 +61,12 @@ export async function applyScheduleUpdate(taskId, changes, allTasks, updateFn, p
     : changes;
 
   // 4. Persist: edited task first (with all its changes), then cascade patches
+  // Serialize all writes with a small delay to stay under the API rate limit
   await updateFn(taskId, directChanges);
 
   const cascadePatches = patches.filter(p => p.id !== taskId);
-  // Serialize writes to avoid hitting the API rate limit
   for (const p of cascadePatches) {
+    await new Promise(r => setTimeout(r, 80));
     await updateFn(p.id, { start_date: p.start_date, end_date: p.end_date, duration: p.duration });
   }
 

@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef, useCallback } from 'react';
 import { ChevronRight, ChevronDown, Plus, Minus, Loader2 } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
 import { base44 } from '@/api/base44Client';
@@ -28,6 +28,8 @@ export default function TaskList({ tasks, allTasks, scheduledMap, onTaskClick, o
   const [adjustingCompletionId, setAdjustingCompletionId] = useState(null);
   const [isCascading, setIsCascading] = useState(false);
   const queryClient = useQueryClient();
+  // Debounce refs for duration adjust — accumulate rapid clicks into one write
+  const durationDebounceRef = useRef({});  // taskId -> { timer, accumulated delta }
 
   const effectiveAllTasks = allTasks || tasks;
   const updateFn = (id, data) => base44.entities.Task.update(id, data);
@@ -89,23 +91,39 @@ export default function TaskList({ tasks, allTasks, scheduledMap, onTaskClick, o
     }
   };
 
-  const adjustDays = async (task, delta) => {
-    if (adjustingId === task.id || isCascading) return;
-    setAdjustingId(task.id);
-    setIsCascading(true);
-    try {
-      const newDuration = Math.max(1, (task.duration || 1) + delta);
-      onPushHistory?.(
-        [{ id: task.id, data: { duration: task.duration, start_date: task.start_date, end_date: task.end_date } }],
-        [{ id: task.id, data: { duration: newDuration } }],
-      );
-      await updateTaskDuration(task.id, newDuration, effectiveAllTasks, updateFn, projectStart);
-      invalidateTasks();
-    } finally {
-      setAdjustingId(null);
-      setIsCascading(false);
+  const adjustDays = useCallback((task, delta) => {
+    if (isCascading) return;
+
+    const state = durationDebounceRef.current;
+    if (!state[task.id]) {
+      state[task.id] = { accDelta: 0, baseDuration: task.duration || 1, timer: null };
     }
-  };
+    state[task.id].accDelta += delta;
+
+    // Show spinner immediately
+    setAdjustingId(task.id);
+
+    // Clear any pending timer and reset after 600ms of inactivity
+    clearTimeout(state[task.id].timer);
+    state[task.id].timer = setTimeout(async () => {
+      const { accDelta, baseDuration } = state[task.id];
+      delete state[task.id];
+
+      const newDuration = Math.max(1, baseDuration + accDelta);
+      setIsCascading(true);
+      try {
+        onPushHistory?.(
+          [{ id: task.id, data: { duration: task.duration, start_date: task.start_date, end_date: task.end_date } }],
+          [{ id: task.id, data: { duration: newDuration } }],
+        );
+        await updateTaskDuration(task.id, newDuration, effectiveAllTasks, updateFn, projectStart);
+        invalidateTasks();
+      } finally {
+        setAdjustingId(null);
+        setIsCascading(false);
+      }
+    }, 600);
+  }, [isCascading, effectiveAllTasks, projectStart, onPushHistory]);
 
   // Context menu actions
   const handleContextAction = async (action, task) => {
