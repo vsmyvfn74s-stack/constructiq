@@ -177,10 +177,34 @@ export default function Programme() {
         return;
       }
 
-      // Stage 3: bulk create tasks
+      // Stage 3: chunked create to stay under API rate limits
       setStage(2, 30, `Creating ${parsedTasks.length} tasks`);
       const tasksToCreate = parsedTasks.map(({ _mspUid, _predecessorLinks, _parentUid, ...t }) => t);
-      const created = await base44.entities.Task.bulkCreate(tasksToCreate);
+
+      const CREATE_BATCH = 25;
+      const created = [];
+      for (let i = 0; i < tasksToCreate.length; i += CREATE_BATCH) {
+        const chunk = tasksToCreate.slice(i, i + CREATE_BATCH);
+        let result;
+        try {
+          result = await base44.entities.Task.bulkCreate(chunk);
+        } catch (err) {
+          const isRateLimit =
+            err?.status === 429 ||
+            err?.response?.status === 429 ||
+            (err?.message || '').toLowerCase().includes('rate limit');
+          if (isRateLimit) {
+            await new Promise(r => setTimeout(r, 2000));
+            result = await base44.entities.Task.bulkCreate(chunk);
+          } else throw err;
+        }
+        created.push(...result);
+        const pct = 30 + Math.round(((i + chunk.length) / tasksToCreate.length) * 25);
+        setStage(2, pct, `${created.length} / ${tasksToCreate.length} tasks created`);
+        if (i + CREATE_BATCH < tasksToCreate.length) {
+          await new Promise(r => setTimeout(r, 400));
+        }
+      }
       setStage(2, 55, `${created.length} tasks created`);
 
       const uidToDbId = new Map();
