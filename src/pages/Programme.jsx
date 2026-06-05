@@ -29,6 +29,8 @@ import ProgressModal from '@/components/programme/ProgressModal';
 import { parseXML, parseMPX, parseExcelCSV } from '@/lib/scheduleImportParsers';
 import { runScheduleEngine } from '@/lib/scheduling/scheduleEngine';
 import { getVisibleTasks } from '@/lib/programme/visibleTasks';
+import { bulkOperationState } from '@/lib/bulkOperationState';
+import { retry429 } from '@/lib/retry429';
 
 const ZOOM_LEVELS = ['year', 'quarter', 'month', 'week', 'day'];
 const DELETE_CHUNK = 150;
@@ -103,6 +105,7 @@ export default function Programme() {
 
   useEffect(() => {
     const unsub = base44.entities.Task.subscribe(() => {
+      if (bulkOperationState.active) return;
       queryClient.invalidateQueries({ queryKey: ['tasks'] });
     });
     return unsub;
@@ -155,6 +158,8 @@ export default function Programme() {
     };
 
     setImportProgress({ stage: 1, stageOf: 6, pct: 2, statusText: 'Reading file…', error: null });
+    console.log('Import started');
+    bulkOperationState.active = true;
 
     try {
       // Stage 1: read file
@@ -177,7 +182,7 @@ export default function Programme() {
         return;
       }
 
-      // Stage 3: chunked create to stay under API rate limits
+      // Stage 3: chunked create with exponential backoff
       setStage(2, 30, `Creating ${parsedTasks.length} tasks`);
       const tasksToCreate = parsedTasks.map(({ _mspUid, _predecessorLinks, _parentUid, ...t }) => t);
 
@@ -185,19 +190,7 @@ export default function Programme() {
       const created = [];
       for (let i = 0; i < tasksToCreate.length; i += CREATE_BATCH) {
         const chunk = tasksToCreate.slice(i, i + CREATE_BATCH);
-        let result;
-        try {
-          result = await base44.entities.Task.bulkCreate(chunk);
-        } catch (err) {
-          const isRateLimit =
-            err?.status === 429 ||
-            err?.response?.status === 429 ||
-            (err?.message || '').toLowerCase().includes('rate limit');
-          if (isRateLimit) {
-            await new Promise(r => setTimeout(r, 2000));
-            result = await base44.entities.Task.bulkCreate(chunk);
-          } else throw err;
-        }
+        const result = await retry429(() => base44.entities.Task.bulkCreate(chunk));
         created.push(...result);
         const pct = 30 + Math.round(((i + chunk.length) / tasksToCreate.length) * 25);
         setStage(2, pct, `${created.length} / ${tasksToCreate.length} tasks created`);
@@ -206,13 +199,14 @@ export default function Programme() {
         }
       }
       setStage(2, 55, `${created.length} tasks created`);
+      console.log('Tasks created:', created.length);
 
       const uidToDbId = new Map();
       parsedTasks.forEach((pt, i) => {
         if (pt._mspUid != null && created[i]?.id) uidToDbId.set(pt._mspUid, created[i].id);
       });
 
-      // Stage 4: link dependencies
+      // Stage 4: link dependencies sequentially
       setStage(3, 60);
       const updates = [];
       parsedTasks.forEach((pt, i) => {
@@ -235,30 +229,12 @@ export default function Programme() {
         if (Object.keys(payload).length) updates.push({ id: dbId, ...payload });
       });
 
-      // Helper: update one task with a single retry on rate-limit (429)
-      const updateWithRetry = async (id, payload) => {
-        try {
-          return await base44.entities.Task.update(id, payload);
-        } catch (err) {
-          const isRateLimit =
-            err?.status === 429 ||
-            err?.response?.status === 429 ||
-            (err?.message || '').toLowerCase().includes('rate limit');
-          if (isRateLimit) {
-            await new Promise(r => setTimeout(r, 2000));
-            return await base44.entities.Task.update(id, payload);
-          }
-          throw err;
-        }
-      };
-
-      // Link dependencies sequentially in small batches to stay under API rate limits
       const DEP_BATCH = 3;
       let done = 0;
       for (let i = 0; i < updates.length; i += DEP_BATCH) {
         const batch = updates.slice(i, i + DEP_BATCH);
         for (const { id, ...payload } of batch) {
-          await updateWithRetry(id, payload);
+          await retry429(() => base44.entities.Task.update(id, payload));
           done++;
           setStage(3, 60 + Math.round((done / updates.length) * 25), `${done} / ${updates.length} dependencies`);
         }
@@ -266,35 +242,39 @@ export default function Programme() {
           await new Promise(r => setTimeout(r, 350));
         }
       }
+      console.log('Dependency updates:', done);
 
       // Stage 5/6: finalise
       setStage(4, 88, 'Building WBS structure');
       setStage(5, 95, 'Finalising');
 
-      queryClient.invalidateQueries({ queryKey: ['tasks'] });
-
       setImportProgress(p => ({ ...p, pct: 100, statusText: 'Import complete!' }));
-      setTimeout(() => {
+      console.log('Import completed');
+
+      setTimeout(async () => {
         setImportProgress(null);
         setMppFile(null);
+        await queryClient.refetchQueries({ queryKey: ['tasks'] });
         toast({ title: `Schedule imported`, description: `${parsedTasks.length} tasks loaded successfully.`, duration: 4000 });
       }, 1200);
 
     } catch (error) {
       setImportProgress(p => ({ ...p, error: error.message || 'Import failed. Please check the file and try again.' }));
+    } finally {
+      bulkOperationState.active = false;
     }
   };
 
-  // ─── Chunked delete with verification ────────────────────────────────────────
+  // ─── Sequential delete with exponential backoff ──────────────────────────────
   const handleDeleteAllTasks = async () => {
     if (!selectedProjectId || selectedProjectId === 'all') return;
-    if (importProgress) return; // block during active import
+    if (importProgress) return;
     setShowDeleteConfirm(false);
 
     setDeleteProgress({ pct: 0, statusText: 'Fetching task list…', done: false, error: null });
 
+    bulkOperationState.active = true;
     try {
-      // Always fetch fresh from DB — UI cache is capped and may be stale
       const freshTasks = await base44.entities.Task.filter(
         { project_id: selectedProjectId }, 'sort_order', 5000
       );
@@ -309,46 +289,22 @@ export default function Programme() {
 
       setDeleteProgress({ pct: 0, statusText: `0 / ${total} tasks deleted`, done: false, error: null });
 
-      // Helper: delete one task with a single retry on rate-limit (429)
-      const deleteWithRetry = async (id) => {
-        try {
-          return await base44.entities.Task.delete(id);
-        } catch (err) {
-          const isRateLimit =
-            err?.status === 429 ||
-            err?.response?.status === 429 ||
-            (err?.message || '').toLowerCase().includes('rate limit');
-          if (isRateLimit) {
-            await new Promise(r => setTimeout(r, 2000));
-            return await base44.entities.Task.delete(id);
-          }
-          throw err;
-        }
-      };
-
-      const BATCH = 3;
       let deleted = 0;
       let failedIds = [];
 
-      // Pass 1: delete sequentially in small batches
-      for (let i = 0; i < allIds.length; i += BATCH) {
-        const batch = allIds.slice(i, i + BATCH);
-        for (const id of batch) {
-          try {
-            await deleteWithRetry(id);
-            deleted++;
-          } catch {
-            failedIds.push(id);
-          }
-          const pct = Math.round((deleted / total) * 80);
-          setDeleteProgress({ pct, statusText: `${deleted} / ${total} deleted`, done: false, error: null });
+      // Pass 1: fully sequential with exponential backoff on 429
+      for (const id of allIds) {
+        try {
+          await retry429(() => base44.entities.Task.delete(id));
+          deleted++;
+        } catch {
+          failedIds.push(id);
         }
-        if (i + BATCH < allIds.length) {
-          await new Promise(r => setTimeout(r, 500));
-        }
+        const pct = Math.round((deleted / total) * 80);
+        setDeleteProgress({ pct, statusText: `${deleted} / ${total} deleted`, done: false, error: null });
       }
 
-      // Pass 2: retry failures with back-off
+      // Pass 2: retry remaining failures
       for (let attempt = 0; attempt < 2 && failedIds.length > 0; attempt++) {
         await new Promise(r => setTimeout(r, 1500 * (attempt + 1)));
         setDeleteProgress(p => ({ ...p, pct: 82, statusText: `Retrying ${failedIds.length} failed…` }));
@@ -356,7 +312,7 @@ export default function Programme() {
         failedIds = [];
         for (const id of retrying) {
           try {
-            await deleteWithRetry(id);
+            await retry429(() => base44.entities.Task.delete(id));
             deleted++;
           } catch {
             failedIds.push(id);
@@ -364,8 +320,8 @@ export default function Programme() {
         }
       }
 
-      // Verify: re-query DB to confirm nothing remains
-      setDeleteProgress(p => ({ ...p, pct: 90, statusText: 'Verifying…' }));
+      // Verify
+      setDeleteProgress(p => ({ ...p, pct: 88, statusText: 'Verifying…' }));
       await new Promise(r => setTimeout(r, 400));
       const remaining = await base44.entities.Task.filter({ project_id: selectedProjectId }, 'sort_order', 1);
 
@@ -373,13 +329,16 @@ export default function Programme() {
         const msg = failedIds.length > 0
           ? `${failedIds.length} of ${total} tasks could not be deleted. Please try again.`
           : `Deletion incomplete — tasks still remain. Please try again.`;
-        setDeleteProgress(p => ({ ...p, pct: 90, error: msg }));
-        queryClient.invalidateQueries({ queryKey: ['tasks'] });
+        setDeleteProgress(p => ({ ...p, pct: 88, error: msg }));
+        await queryClient.refetchQueries({ queryKey: ['tasks'] });
         return;
       }
 
-      // Confirmed fully deleted
-      queryClient.invalidateQueries({ queryKey: ['tasks'] });
+      // Wait for API quota recovery before allowing next operation
+      setDeleteProgress(p => ({ ...p, pct: 95, statusText: 'Waiting for API recovery…' }));
+      await new Promise(r => setTimeout(r, 15000));
+
+      await queryClient.refetchQueries({ queryKey: ['tasks'] });
       setDeleteProgress(p => ({ ...p, pct: 100, statusText: `${total} tasks deleted`, done: true }));
       setTimeout(() => {
         setDeleteProgress(null);
@@ -388,6 +347,8 @@ export default function Programme() {
 
     } catch (error) {
       setDeleteProgress(p => ({ ...p, error: error.message || 'Delete failed. Please try again.' }));
+    } finally {
+      bulkOperationState.active = false;
     }
   };
 
