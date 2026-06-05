@@ -465,7 +465,7 @@ export default function Programme() {
           />
         </TabsContent>
 
-        <TabsContent value="lookahead" className="flex-1 overflow-hidden border rounded-lg bg-card mt-2">
+        <TabsContent value="lookahead" className="flex-1 overflow-hidden">
           <LookAhead tasks={tasks} scheduledMap={scheduledMap} />
         </TabsContent>
 
