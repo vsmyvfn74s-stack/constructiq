@@ -21,6 +21,12 @@ export default function ProjectFormDialog({ open, onOpenChange, project }) {
     queryFn: () => base44.entities.DocumentFolderTemplate.list(),
   });
 
+  React.useEffect(() => {
+    if (open) {
+      queryClient.invalidateQueries({ queryKey: ['documentFolderTemplates'] });
+    }
+  }, [open, queryClient]);
+
   const mutation = useMutation({
     mutationFn: async (data) => {
       if (project?.id) return base44.entities.Project.update(project.id, data);
