@@ -66,7 +66,7 @@ export async function applyScheduleUpdate(taskId, changes, allTasks, updateFn, p
 
   const cascadePatches = patches.filter(p => p.id !== taskId);
   for (const p of cascadePatches) {
-    await new Promise(r => setTimeout(r, 80));
+    await new Promise(r => setTimeout(r, 350));
     await updateFn(p.id, { start_date: p.start_date, end_date: p.end_date, duration: p.duration });
   }
 

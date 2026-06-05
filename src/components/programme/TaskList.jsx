@@ -122,7 +122,7 @@ export default function TaskList({ tasks, allTasks, scheduledMap, onTaskClick, o
         setAdjustingId(null);
         setIsCascading(false);
       }
-    }, 600);
+    }, 1000);
   }, [isCascading, effectiveAllTasks, projectStart, onPushHistory]);
 
   // Context menu actions
