@@ -64,10 +64,9 @@ export async function applyScheduleUpdate(taskId, changes, allTasks, updateFn, p
   await updateFn(taskId, directChanges);
 
   const cascadePatches = patches.filter(p => p.id !== taskId);
-  if (cascadePatches.length > 0) {
-    await Promise.all(cascadePatches.map(p =>
-      updateFn(p.id, { start_date: p.start_date, end_date: p.end_date, duration: p.duration })
-    ));
+  // Serialize writes to avoid hitting the API rate limit
+  for (const p of cascadePatches) {
+    await updateFn(p.id, { start_date: p.start_date, end_date: p.end_date, duration: p.duration });
   }
 
   return { patches, scheduledMap, mergedTasks };
