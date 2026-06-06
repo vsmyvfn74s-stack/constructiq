@@ -435,7 +435,7 @@ export default function Programme() {
         </TabsList></div>
 
         {/* ── Gantt ── */}
-        <TabsContent value="gantt" className="flex-1 flex border rounded-lg overflow-hidden bg-card mt-2">
+        <TabsContent value="gantt" className="flex-1 flex border rounded-lg overflow-hidden bg-card">
           {isMobile ? (
             <div className="flex-1 overflow-hidden">
               <TaskList

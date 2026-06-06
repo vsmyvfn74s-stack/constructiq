@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Download, Trash2, FolderOpen, ChevronRight, ChevronDown } from 'lucide-react';
+import { Download, Trash2, FolderOpen, FolderClosed, ChevronRight, ChevronDown } from 'lucide-react';
 import { format } from 'date-fns';
 
 const CATEGORIES = ['Plans', 'Specifications', 'Bill of Quantities', 'Schedule', 'Contract', 'Other'];
@@ -15,16 +15,48 @@ function getExt(name) {
   return (name || '').split('.').pop()?.toLowerCase() || '';
 }
 
-function DocRow({ doc, idx, canManage, onCategoryChange, onDelete, indent = 0 }) {
+/**
+ * Build a recursive tree from flat docs with folder_path strings.
+ * folder_path examples: '', 'Tender Package/', 'Tender Package/Architectural/'
+ *
+ * Tree nodes: { name, files: [{doc, idx}], children: Map<name, node> }
+ */
+function buildTree(docs) {
+  const root = { name: '', files: [], children: new Map() };
+
+  docs.forEach((doc, idx) => {
+    // Normalise: strip trailing slash, split by /
+    const fp = (doc.folder_path || '').replace(/\/+$/, '');
+
+    if (!fp) {
+      root.files.push({ doc, idx });
+      return;
+    }
+
+    const parts = fp.split('/').filter(Boolean);
+    let node = root;
+    for (const part of parts) {
+      if (!node.children.has(part)) {
+        node.children.set(part, { name: part, files: [], children: new Map() });
+      }
+      node = node.children.get(part);
+    }
+    node.files.push({ doc, idx });
+  });
+
+  return root;
+}
+
+function DocRow({ doc, idx, canManage, onCategoryChange, onDelete, depth }) {
   return (
     <tr className="hover:bg-muted/30 transition-colors">
-      <td className="px-4 py-3">
-        <div className="flex items-center gap-2" style={{ paddingLeft: `${indent * 16}px` }}>
-          <span className="text-base">{FILE_ICONS[getExt(doc.name)] || '📎'}</span>
+      <td className="px-4 py-2.5">
+        <div className="flex items-center gap-2" style={{ paddingLeft: `${depth * 20}px` }}>
+          <span className="text-sm">{FILE_ICONS[getExt(doc.name)] || '📎'}</span>
           <span className="font-medium text-sm truncate max-w-[200px]">{doc.name}</span>
         </div>
       </td>
-      <td className="px-4 py-3">
+      <td className="px-4 py-2.5">
         {canManage ? (
           <Select value={doc.category || 'Other'} onValueChange={v => onCategoryChange(idx, v)}>
             <SelectTrigger className="h-7 text-xs w-40"><SelectValue /></SelectTrigger>
@@ -36,17 +68,17 @@ function DocRow({ doc, idx, canManage, onCategoryChange, onDelete, indent = 0 })
           <span className="text-xs text-muted-foreground">{doc.category || 'Other'}</span>
         )}
       </td>
-      <td className="px-4 py-3 hidden sm:table-cell">
+      <td className="px-4 py-2.5 hidden sm:table-cell">
         <span className="text-xs bg-muted px-1.5 py-0.5 rounded font-mono">
           {doc.file_type || getExt(doc.name).toUpperCase()}
         </span>
       </td>
-      <td className="px-4 py-3 hidden md:table-cell">
+      <td className="px-4 py-2.5 hidden md:table-cell">
         <span className="text-xs text-muted-foreground">
           {doc.uploaded_at ? format(new Date(doc.uploaded_at), 'dd MMM yyyy') : '—'}
         </span>
       </td>
-      <td className="px-4 py-3">
+      <td className="px-4 py-2.5">
         <div className="flex items-center gap-1 justify-end">
           <a href={doc.file_url} target="_blank" rel="noopener noreferrer">
             <Button variant="ghost" size="icon" className="h-7 w-7" title="Download">
@@ -65,60 +97,73 @@ function DocRow({ doc, idx, canManage, onCategoryChange, onDelete, indent = 0 })
   );
 }
 
-function FolderSection({ folderPath, docs, allDocs, canManage, onCategoryChange, onDelete }) {
-  const [collapsed, setCollapsed] = useState(false);
+function countAllFiles(node) {
+  let n = node.files.length;
+  for (const child of node.children.values()) n += countAllFiles(child);
+  return n;
+}
 
-  // Display name: just the deepest folder name
-  const parts = folderPath.replace(/\/$/, '').split('/');
-  const displayName = parts[parts.length - 1];
-  const depth = parts.length - 1;
+function FolderNode({ node, depth, canManage, onCategoryChange, onDelete }) {
+  const [open, setOpen] = useState(true);
+  const total = countAllFiles(node);
+  const childKeys = [...node.children.keys()].sort();
 
   return (
     <>
-      <tr className="bg-muted/20 border-b border-border/30">
-        <td colSpan={5} className="px-4 py-1.5">
+      {/* Folder header row */}
+      <tr className="bg-muted/30 border-b border-border/20">
+        <td colSpan={5} className="py-1">
           <button
-            className="flex items-center gap-1.5 text-xs font-semibold text-muted-foreground hover:text-foreground transition-colors"
-            style={{ paddingLeft: `${depth * 16}px` }}
-            onClick={() => setCollapsed(c => !c)}
+            className="flex items-center gap-1.5 w-full text-left text-xs font-semibold text-muted-foreground hover:text-foreground transition-colors px-4"
+            style={{ paddingLeft: `${depth * 20 + 16}px` }}
+            onClick={() => setOpen(o => !o)}
           >
-            {collapsed ? <ChevronRight className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
-            <FolderOpen className="w-3.5 h-3.5 text-amber-500" />
-            {displayName}
-            <span className="font-normal ml-1">({docs.length})</span>
+            {open
+              ? <ChevronDown className="w-3.5 h-3.5 flex-shrink-0" />
+              : <ChevronRight className="w-3.5 h-3.5 flex-shrink-0" />}
+            {open
+              ? <FolderOpen className="w-3.5 h-3.5 text-amber-500 flex-shrink-0" />
+              : <FolderClosed className="w-3.5 h-3.5 text-amber-500 flex-shrink-0" />}
+            <span>{node.name}</span>
+            <span className="font-normal text-muted-foreground/60 ml-1">({total})</span>
           </button>
         </td>
       </tr>
-      {!collapsed && docs.map(({ doc, idx }) => (
-        <DocRow
-          key={idx}
-          doc={doc}
-          idx={idx}
-          canManage={canManage}
-          onCategoryChange={onCategoryChange}
-          onDelete={onDelete}
-          indent={depth + 1}
-        />
-      ))}
+
+      {open && (
+        <>
+          {/* Direct files in this folder */}
+          {node.files.map(({ doc, idx }) => (
+            <DocRow
+              key={idx}
+              doc={doc}
+              idx={idx}
+              depth={depth + 1}
+              canManage={canManage}
+              onCategoryChange={onCategoryChange}
+              onDelete={onDelete}
+            />
+          ))}
+          {/* Sub-folders */}
+          {childKeys.map(key => (
+            <FolderNode
+              key={key}
+              node={node.children.get(key)}
+              depth={depth + 1}
+              canManage={canManage}
+              onCategoryChange={onCategoryChange}
+              onDelete={onDelete}
+            />
+          ))}
+        </>
+      )}
     </>
   );
 }
 
 export default function DocTable({ docs, canManage, onCategoryChange, onDelete }) {
-  // Separate flat docs (no folder_path) from folder docs, maintaining original indices
-  const indexed = docs.map((doc, idx) => ({ doc, idx }));
-
-  // Group by folder_path
-  const flat = indexed.filter(({ doc }) => !doc.folder_path);
-  const folderMap = new Map();
-  indexed.filter(({ doc }) => !!doc.folder_path).forEach(item => {
-    const key = item.doc.folder_path;
-    if (!folderMap.has(key)) folderMap.set(key, []);
-    folderMap.get(key).push(item);
-  });
-
-  // Sort folder keys so parent folders appear before children
-  const sortedFolders = [...folderMap.keys()].sort();
+  const tree = buildTree(docs);
+  const folderKeys = [...tree.children.keys()].sort();
 
   return (
     <div className="border rounded-lg overflow-hidden">
@@ -133,17 +178,24 @@ export default function DocTable({ docs, canManage, onCategoryChange, onDelete }
           </tr>
         </thead>
         <tbody className="divide-y">
-          {/* Flat (root-level) docs first */}
-          {flat.map(({ doc, idx }) => (
-            <DocRow key={idx} doc={doc} idx={idx} canManage={canManage} onCategoryChange={onCategoryChange} onDelete={onDelete} />
+          {/* Root-level files (no folder) */}
+          {tree.files.map(({ doc, idx }) => (
+            <DocRow
+              key={idx}
+              doc={doc}
+              idx={idx}
+              depth={0}
+              canManage={canManage}
+              onCategoryChange={onCategoryChange}
+              onDelete={onDelete}
+            />
           ))}
-          {/* Folder groups */}
-          {sortedFolders.map(folderPath => (
-            <FolderSection
-              key={folderPath}
-              folderPath={folderPath}
-              docs={folderMap.get(folderPath)}
-              allDocs={docs}
+          {/* Folder tree */}
+          {folderKeys.map(key => (
+            <FolderNode
+              key={key}
+              node={tree.children.get(key)}
+              depth={0}
               canManage={canManage}
               onCategoryChange={onCategoryChange}
               onDelete={onDelete}

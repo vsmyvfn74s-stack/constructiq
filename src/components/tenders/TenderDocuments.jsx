@@ -64,7 +64,13 @@ export default function TenderDocuments({ tender, onUpdate, canManage }) {
       if (ALLOWED_EXTS.includes(getExt(file.name))) results.push({ file, path });
     } else if (entry.isDirectory) {
       const reader = entry.createReader();
-      const entries = await new Promise(res => reader.readEntries(res));
+      // readEntries returns max 100 per call — must loop until empty
+      const entries = [];
+      let batch;
+      do {
+        batch = await new Promise(res => reader.readEntries(res));
+        entries.push(...batch);
+      } while (batch.length > 0);
       for (const child of entries) {
         const sub = await collectFiles(child, `${path}${entry.name}/`);
         results.push(...sub);
