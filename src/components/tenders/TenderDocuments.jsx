@@ -5,7 +5,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
-import { Upload, Download, Trash2, FileText, Loader2 } from 'lucide-react';
+import { Upload, Download, Trash2, FileText, Loader2, AlertTriangle, X } from 'lucide-react';
 import { format } from 'date-fns';
 import { cn } from '@/lib/utils';
 
@@ -29,6 +29,7 @@ export default function TenderDocuments({ tender, onUpdate, canManage }) {
   const [isDragOver, setIsDragOver] = useState(false);
   const [downloadingAll, setDownloadingAll] = useState(false);
   const [uploadProgress, setUploadProgress] = useState({ current: 0, total: 0 });
+  const [uploadError, setUploadError] = useState(null);
 
   const docs = tender.documents || [];
 
@@ -55,12 +56,76 @@ export default function TenderDocuments({ tender, onUpdate, canManage }) {
     setUploadProgress({ current: 0, total: 0 });
   };
 
+  const collectFiles = async (entry, path = '') => {
+    const results = [];
+    if (entry.isFile) {
+      const file = await new Promise(res => entry.file(res));
+      if (ALLOWED_EXTS.includes(getExt(file.name))) results.push({ file, path });
+    } else if (entry.isDirectory) {
+      const reader = entry.createReader();
+      const entries = await new Promise(res => reader.readEntries(res));
+      for (const child of entries) {
+        const sub = await collectFiles(child, `${path}${entry.name}/`);
+        results.push(...sub);
+      }
+    }
+    return results;
+  };
+
   const handleDrop = async (e) => {
     e.preventDefault();
     setIsDragOver(false);
+    setUploadError(null);
     if (!canManage) return;
-    const files = Array.from(e.dataTransfer.files).filter(f => ALLOWED_EXTS.includes(getExt(f.name)));
-    await uploadFiles(files);
+
+    const items = Array.from(e.dataTransfer.items || []);
+    let allFiles = [];
+
+    if (items.length && items[0].webkitGetAsEntry) {
+      for (const item of items) {
+        const entry = item.webkitGetAsEntry?.();
+        if (entry) {
+          const found = await collectFiles(entry);
+          allFiles.push(...found);
+        }
+      }
+    } else {
+      // Fallback: plain file drop
+      allFiles = Array.from(e.dataTransfer.files)
+        .filter(f => ALLOWED_EXTS.includes(getExt(f.name)))
+        .map(file => ({ file, path: '' }));
+    }
+
+    if (!allFiles.length) return;
+
+    setUploading(true);
+    setUploadProgress({ current: 0, total: allFiles.length });
+    const newDocs = [];
+    const errors = [];
+    let uploaded = 0;
+
+    for (const { file, path } of allFiles) {
+      try {
+        const { file_url } = await base44.integrations.Core.UploadFile({ file });
+        newDocs.push({
+          name: file.name.replace(/\.[^.]+$/, ''),
+          file_url,
+          file_type: (file.name.split('.').pop() || 'File').toUpperCase(),
+          category: 'Other',
+          folder_path: path || '',
+          uploaded_at: new Date().toISOString(),
+        });
+        uploaded++;
+        setUploadProgress({ current: uploaded, total: allFiles.length });
+      } catch (err) {
+        errors.push(`${file.name}: ${err.message}`);
+      }
+    }
+
+    if (newDocs.length) await onUpdate({ documents: [...docs, ...newDocs] });
+    setUploading(false);
+    setUploadProgress({ current: 0, total: 0 });
+    if (errors.length) setUploadError(`${uploaded} uploaded, ${errors.length} failed: ${errors[0]}`);
   };
 
   const handleUpload = async () => {
@@ -171,6 +236,15 @@ export default function TenderDocuments({ tender, onUpdate, canManage }) {
               style={{ width: `${(uploadProgress.current / uploadProgress.total) * 100}%` }}
             />
           </div>
+        </div>
+      )}
+      {uploadError && (
+        <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg flex items-start gap-2">
+          <AlertTriangle className="w-4 h-4 text-red-600 flex-shrink-0 mt-0.5" />
+          <p className="text-sm text-red-800 flex-1">{uploadError}</p>
+          <button onClick={() => setUploadError(null)} className="text-red-600 flex-shrink-0">
+            <X className="w-4 h-4" />
+          </button>
         </div>
       )}
 

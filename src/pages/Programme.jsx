@@ -171,7 +171,7 @@ export default function Programme() {
     };
 
     setImportProgress({ stage: 1, stageOf: 6, pct: 2, statusText: 'Reading file…', error: null });
-    console.log('Import started');
+    // Import started
     bulkOperationState.active = true;
 
     try {
@@ -199,7 +199,7 @@ export default function Programme() {
       setStage(2, 30, `Creating ${parsedTasks.length} tasks`);
       const tasksToCreate = parsedTasks.map(({ _mspUid, _predecessorLinks, _parentUid, ...t }) => t);
 
-      const CREATE_BATCH = 25;
+      const CREATE_BATCH = 100;
       const created = [];
       for (let i = 0; i < tasksToCreate.length; i += CREATE_BATCH) {
         const chunk = tasksToCreate.slice(i, i + CREATE_BATCH);
@@ -207,12 +207,9 @@ export default function Programme() {
         created.push(...result);
         const pct = 30 + Math.round(((i + chunk.length) / tasksToCreate.length) * 25);
         setStage(2, pct, `${created.length} / ${tasksToCreate.length} tasks created`);
-        if (i + CREATE_BATCH < tasksToCreate.length) {
-          await new Promise(r => setTimeout(r, 400));
-        }
       }
       setStage(2, 55, `${created.length} tasks created`);
-      console.log('Tasks created:', created.length);
+
 
       const uidToDbId = new Map();
       parsedTasks.forEach((pt, i) => {
@@ -242,27 +239,24 @@ export default function Programme() {
         if (Object.keys(payload).length) updates.push({ id: dbId, ...payload });
       });
 
-      const DEP_BATCH = 3;
+      const DEP_BATCH = 15;
       let done = 0;
       for (let i = 0; i < updates.length; i += DEP_BATCH) {
         const batch = updates.slice(i, i + DEP_BATCH);
-        for (const { id, ...payload } of batch) {
-          await retry429(() => base44.entities.Task.update(id, payload));
-          done++;
-          setStage(3, 60 + Math.round((done / updates.length) * 25), `${done} / ${updates.length} dependencies`);
-        }
-        if (i + DEP_BATCH < updates.length) {
-          await new Promise(r => setTimeout(r, 350));
-        }
+        await Promise.all(batch.map(({ id, ...payload }) =>
+          retry429(() => base44.entities.Task.update(id, payload)).then(() => {
+            done++;
+            setStage(3, 60 + Math.round((done / updates.length) * 25), `${done} / ${updates.length} dependencies`);
+          })
+        ));
       }
-      console.log('Dependency updates:', done);
 
       // Stage 5/6: finalise
       setStage(4, 88, 'Building WBS structure');
       setStage(5, 95, 'Finalising');
 
       setImportProgress(p => ({ ...p, pct: 100, statusText: 'Import complete!' }));
-      console.log('Import completed');
+
 
       setTimeout(async () => {
         setImportProgress(null);
@@ -304,20 +298,21 @@ export default function Programme() {
 
       let deleted = 0;
       let failedIds = [];
+      const DELETE_CONCURRENT = 30;
 
-      // Pass 1: fully sequential with exponential backoff on 429
-      for (const id of allIds) {
-        try {
-          await retry429(() => base44.entities.Task.delete(id));
-          deleted++;
-        } catch {
-          failedIds.push(id);
-        }
+      // Pass 1: concurrent batches with retry429
+      for (let i = 0; i < allIds.length; i += DELETE_CONCURRENT) {
+        const batch = allIds.slice(i, i + DELETE_CONCURRENT);
+        const results = await Promise.allSettled(batch.map(id => retry429(() => base44.entities.Task.delete(id))));
+        results.forEach((r, idx) => {
+          if (r.status === 'fulfilled') deleted++;
+          else failedIds.push(batch[idx]);
+        });
         const pct = Math.round((deleted / total) * 80);
         setDeleteProgress({ pct, statusText: `${deleted} / ${total} deleted`, done: false, error: null });
       }
 
-      // Pass 2: retry remaining failures
+      // Pass 2: retry remaining failures sequentially
       for (let attempt = 0; attempt < 2 && failedIds.length > 0; attempt++) {
         await new Promise(r => setTimeout(r, 1500 * (attempt + 1)));
         setDeleteProgress(p => ({ ...p, pct: 82, statusText: `Retrying ${failedIds.length} failed…` }));
@@ -501,11 +496,11 @@ export default function Programme() {
           )}
         </TabsContent>
 
-        <TabsContent value="lookahead" className="flex-1 overflow-hidden">
+        <TabsContent value="lookahead" className="flex-1 overflow-hidden border rounded-lg bg-card">
           <LookAhead tasks={tasks} scheduledMap={scheduledMap} />
         </TabsContent>
 
-        <TabsContent value="health" className="flex-1 overflow-hidden border rounded-lg bg-card mt-2">
+        <TabsContent value="health" className="flex-1 overflow-hidden border rounded-lg bg-card">
           <ProgrammeHealth tasks={tasks} scheduledMap={scheduledMap} />
         </TabsContent>
       </Tabs>

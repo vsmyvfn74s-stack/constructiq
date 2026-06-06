@@ -82,10 +82,6 @@ export const parseXML = (text, projectId) => {
       },
     };
 
-    if (predLinks.length > 0) {
-      console.log(`XML Parser: Task ${task.wbs} (${name}, UID ${uid}): found ${predLinks.length} predecessor link(s)`);
-    }
-
     return task;
   }).filter(Boolean);
 
