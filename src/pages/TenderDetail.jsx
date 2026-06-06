@@ -82,13 +82,19 @@ export default function TenderDetail() {
   // Detect unsaved changes
   useEffect(() => {
     if (!tender || !form) return;
-    const textFields = ['title', 'description', 'status', 'location', 'issue_date', 'closing_date', 'closing_time', 'notes', 'client_name', 'client_email', 'architect_name', 'architect_email', 'project_manager_name', 'project_manager_email'];
+    const textFields = ['title', 'description', 'status', 'location', 'issue_date', 'notes', 'client_name', 'client_email', 'architect_name', 'architect_email', 'project_manager_name', 'project_manager_email'];
     const textChanged = textFields.some(key => String(form[key] ?? '') !== String(tender[key] ?? ''));
     const valueChanged = String(form.estimated_value ?? '') !== String(tender.estimated_value ?? '');
     const tradeChanged = JSON.stringify(form.trade_packages ?? []) !== JSON.stringify(tender.trade_packages ?? []);
     const scoringChanged = JSON.stringify(form.scoring_criteria ?? []) !== JSON.stringify(tender.scoring_criteria ?? []);
     const contactsChanged = JSON.stringify(form.additional_contacts ?? []) !== JSON.stringify(tender.additional_contacts ?? []);
-    setIsDirty(textChanged || valueChanged || tradeChanged || scoringChanged || contactsChanged);
+    const closingChanged = (() => {
+      const formFull = form.closing_date
+        ? `${form.closing_date}T${form.closing_time || '17:00'}:00`
+        : '';
+      return formFull !== (tender.closing_date || '');
+    })();
+    setIsDirty(textChanged || valueChanged || tradeChanged || scoringChanged || contactsChanged || closingChanged);
   }, [form, tender]);
 
   const updateMutation = useMutation({
@@ -342,8 +348,22 @@ export default function TenderDetail() {
               { label: 'Project Manager', prefix: 'project_manager' },
             ].map(({ label, prefix }) => (
               <div key={prefix} className="grid grid-cols-1 sm:grid-cols-3 gap-3 p-3 border rounded-lg">
-                <div className="flex items-center">
+                <div className="flex items-center justify-between">
                   <p className="text-sm font-medium">{label}</p>
+                  {canManage && (form[`${prefix}_name`] || form[`${prefix}_email`] || form[`${prefix}_contact`]) && (
+                    <button
+                      type="button"
+                      className="text-xs text-muted-foreground hover:text-destructive transition-colors"
+                      onClick={() => setForm(f => ({
+                        ...f,
+                        [`${prefix}_name`]: '',
+                        [`${prefix}_contact`]: '',
+                        [`${prefix}_email`]: '',
+                      }))}
+                    >
+                      Clear
+                    </button>
+                  )}
                 </div>
                 <div>
                   <Label className="text-xs">Name</Label>

@@ -153,7 +153,7 @@ export default function Settings() {
       <PageHeader title="Settings" description="Manage your profile and preferences" />
 
       <Tabs defaultValue="profile" className="space-y-6">
-        <TabsList className="flex-wrap">
+        <div className="overflow-x-auto -mx-1 px-1 pb-1"><TabsList className="inline-flex w-max h-auto p-1 gap-0.5">
           <TabsTrigger value="profile">Profile</TabsTrigger>
           <TabsTrigger value="notifications">
             <Bell className="w-3.5 h-3.5 mr-1" /> Notifications
@@ -193,7 +193,7 @@ export default function Settings() {
               <FileSignature className="w-3.5 h-3.5 mr-1" /> Tender Defaults
             </TabsTrigger>
           )}
-        </TabsList>
+        </TabsList></div>
 
         {/* Profile */}
         <TabsContent value="profile">

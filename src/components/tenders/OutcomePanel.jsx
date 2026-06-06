@@ -63,7 +63,7 @@ export default function OutcomePanel({ tender, onUpdate, onConvert, canManage })
           company_name: user?.company_name || 'ConstructIQ',
         });
         const htmlBody = buildEmailHtml(body, emailBranding);
-        await base44.integrations.Core.SendEmail({ to: inv.email, subject, body: htmlBody });
+        await base44.functions.invoke('sendEmail', { to: inv.email, toName: inv.full_name || '', subject, htmlBody });
         sent++;
       } catch (e) {
         failed++;
@@ -105,7 +105,7 @@ export default function OutcomePanel({ tender, onUpdate, onConvert, canManage })
           company_name: user?.company_name || 'ConstructIQ',
         });
         const htmlBody = buildEmailHtml(body, emailBranding);
-        await base44.integrations.Core.SendEmail({ to: inv.email, subject, body: htmlBody });
+        await base44.functions.invoke('sendEmail', { to: inv.email, toName: inv.full_name || '', subject, htmlBody });
         sent++;
       } catch (e) {
         failed++;
@@ -146,7 +146,7 @@ export default function OutcomePanel({ tender, onUpdate, onConvert, canManage })
         company_name: user?.company_name || 'ConstructIQ',
       });
       const htmlBody = buildEmailHtml(body, emailBranding);
-      await base44.integrations.Core.SendEmail({ to: inv.email, subject, body: htmlBody });
+      await base44.functions.invoke('sendEmail', { to: inv.email, toName: inv.full_name || '', subject, htmlBody });
       toast({ title: `Notification sent to ${inv.full_name}` });
 
       // Update notified_at

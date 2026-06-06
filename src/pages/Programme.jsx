@@ -72,10 +72,10 @@ export default function Programme() {
   const isSyncing = useRef(false);
 
   const syncScroll = useCallback((source, target) => {
-    if (isSyncing.current) return;
+    if (!source || !target || isSyncing.current) return;
     isSyncing.current = true;
     target.scrollTop = source.scrollTop;
-    isSyncing.current = false;
+    requestAnimationFrame(() => { isSyncing.current = false; });
   }, []);
 
   const onToggleExpand = useCallback((id) => {
@@ -423,11 +423,11 @@ export default function Programme() {
       />
 
       <Tabs defaultValue="gantt" className="flex-1 flex flex-col overflow-hidden">
-        <TabsList className="flex-shrink-0 w-fit">
+        <div className="overflow-x-auto flex-shrink-0"><TabsList className="flex w-max">
           <TabsTrigger value="gantt">Gantt Chart</TabsTrigger>
           <TabsTrigger value="lookahead" className="gap-1.5"><CalendarDays className="w-3.5 h-3.5" /> Look Ahead</TabsTrigger>
           <TabsTrigger value="health" className="gap-1.5"><LayoutDashboard className="w-3.5 h-3.5" /> Health</TabsTrigger>
-        </TabsList>
+        </TabsList></div>
 
         {/* ── Gantt ── */}
         <TabsContent value="gantt" className="flex-1 flex border rounded-lg overflow-hidden bg-card mt-2">
@@ -448,7 +448,11 @@ export default function Programme() {
                 onTaskClick={setSelectedTask}
                 onEditTask={setEditingTask}
                 scrollRef={taskScrollRef}
-                onScroll={() => ganttScrollRef.current && syncScroll(taskScrollRef.current, ganttScrollRef.current)}
+                onScroll={() => {
+                  if (taskScrollRef.current && ganttScrollRef.current) {
+                    syncScroll(taskScrollRef.current, ganttScrollRef.current);
+                  }
+                }}
               />
             </div>
           )}
@@ -459,7 +463,11 @@ export default function Programme() {
             scheduledMap={scheduledMap}
             zoom={zoom}
             scrollRef={ganttScrollRef}
-            onScroll={() => taskScrollRef.current && syncScroll(ganttScrollRef.current, taskScrollRef.current)}
+            onScroll={() => {
+              if (taskScrollRef.current && ganttScrollRef.current) {
+                syncScroll(ganttScrollRef.current, taskScrollRef.current);
+              }
+            }}
             baselineMap={null}
             onTaskClick={setSelectedTask}
           />

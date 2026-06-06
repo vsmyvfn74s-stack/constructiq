@@ -94,7 +94,7 @@ export default function RFIFormDialog({ open, onOpenChange, projects = [], defau
           url: rfiUrl,
         });
         const htmlBody = buildEmailHtml(body, emailBranding);
-        base44.integrations.Core.SendEmail({ to: assignee.email, subject, body: htmlBody }).catch(() => {});
+        base44.functions.invoke('sendEmail', { to: assignee.email, toName: assignee.name || '', subject, htmlBody }).catch(() => {});
       });
       return rfi;
     },

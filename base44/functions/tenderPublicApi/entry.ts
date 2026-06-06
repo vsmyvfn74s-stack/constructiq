@@ -1,4 +1,5 @@
 import { createClientFromRequest } from 'npm:@base44/sdk@0.8.31';
+import { Resend } from 'npm:resend@4.0.0';
 
 Deno.serve(async (req) => {
   try {
@@ -95,6 +96,9 @@ Deno.serve(async (req) => {
       const brandings = await base44.asServiceRole.entities.EmailBranding.list();
       const branding = brandings[0] || {};
       const brandColour = branding.brand_colour || '#1a56db';
+      const fromName = branding.sender_name || branding.company_name || 'ConstructIQ';
+      const fromEmail = `${fromName} <noreply@totalhomesolutions.co.nz>`;
+      const resend = new Resend(Deno.env.get('RESEND_API_KEY'));
 
       // Confirmation email to invitee
       try {
@@ -120,10 +124,11 @@ Deno.serve(async (req) => {
 </table>
 </body></html>`;
 
-          await base44.asServiceRole.integrations.Core.SendEmail({
+          await resend.emails.send({
+            from: fromEmail,
             to: invitee.email,
             subject: `Tender Submission Received — ${tender.tender_number || ''}: ${tender.title}`,
-            body: htmlBody,
+            html: htmlBody,
           });
         }
       } catch (_e) { /* email failure is non-blocking */ }
@@ -161,10 +166,11 @@ Deno.serve(async (req) => {
 </table>
 </body></html>`;
 
-          await base44.asServiceRole.integrations.Core.SendEmail({
+          await resend.emails.send({
+            from: fromEmail,
             to: tender.created_by_email,
             subject: `New Submission — ${tender.title}`,
-            body: creatorHtml,
+            html: creatorHtml,
           });
         }
       } catch (_e) { /* email failure is non-blocking */ }

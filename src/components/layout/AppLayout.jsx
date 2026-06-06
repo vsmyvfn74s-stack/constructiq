@@ -24,7 +24,7 @@ export default function AppLayout() {
         sidebarCollapsed ? "lg:ml-[68px]" : "lg:ml-[240px]"
       )}>
         <TopBar onMenuToggle={() => setSidebarCollapsed(!sidebarCollapsed)} />
-        <main className="flex-1 p-4 lg:p-6 pb-20 lg:pb-6">
+        <main className="flex-1 p-4 lg:p-6 lg:pb-6" style={{ paddingBottom: 'calc(4rem + env(safe-area-inset-bottom, 0px))' }}>
           <Outlet />
         </main>
       </div>

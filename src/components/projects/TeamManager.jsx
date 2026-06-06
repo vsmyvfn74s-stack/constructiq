@@ -123,7 +123,7 @@ export default function TeamManager({ project }) {
         });
         try {
           const htmlBody = buildEmailHtml(body, emailBranding);
-          await base44.integrations.Core.SendEmail({ to: member.user_email, subject, body: htmlBody });
+          await base44.functions.invoke('sendEmail', { to: member.user_email, toName: member.full_name || '', subject, htmlBody });
         } catch (e) {
           // Email failed — not critical
         }

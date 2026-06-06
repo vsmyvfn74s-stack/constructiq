@@ -96,6 +96,7 @@ export default function RFIDetail() {
       const { subject, body } = applyTemplate(tpl, {
         rfi_ref: `RFI-${String(rfi.number).padStart(3, '0')}`,
         title: rfi.title,
+        project_name: project?.name || projectName || 'Unknown Project',
         responder_name: user?.full_name || 'A team member',
         response_text: response,
         url: rfiUrl,
@@ -109,7 +110,7 @@ export default function RFIDetail() {
 
       notifyEmails.forEach(email => {
         if (registeredUsers.some(u => u.email?.toLowerCase() === email?.toLowerCase())) {
-          base44.integrations.Core.SendEmail({ to: email, subject, body: htmlBody }).catch(() => {});
+          base44.functions.invoke('sendEmail', { to: email, subject, htmlBody }).catch(() => {});
         }
       });
     },

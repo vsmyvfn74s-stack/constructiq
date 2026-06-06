@@ -39,6 +39,7 @@ export default function GanttChart({
 }) {
   const dayWidth = ZOOM_DAY_WIDTHS[zoom] || 18;
   const scrolledToday = useRef(false);
+  const dateHeaderRef = useRef(null);
 
   // ─── Timeline bounds (based on full task set, not visible) ───────────────────
   const { minDate, totalDays, dateHeaders } = useMemo(() => {
@@ -177,7 +178,7 @@ export default function GanttChart({
       </div>
 
       {/* Date header */}
-      <div className="flex-shrink-0 h-9 border-b bg-muted/30 overflow-hidden" id="gantt-date-header">
+      <div className="flex-shrink-0 h-9 border-b bg-muted/30 overflow-hidden" ref={dateHeaderRef}>
         <div className="flex h-full" style={{ minWidth: chartWidth }}>
           {dateHeaders.map((h, i) => (
             <div
@@ -202,8 +203,9 @@ export default function GanttChart({
         className="flex-1 overflow-auto"
         ref={scrollRef}
         onScroll={(e) => {
-          const header = document.getElementById('gantt-date-header');
-          if (header) header.scrollLeft = e.currentTarget.scrollLeft;
+          if (dateHeaderRef.current) {
+            dateHeaderRef.current.scrollLeft = e.currentTarget.scrollLeft;
+          }
           onScroll?.(e);
         }}
       >
