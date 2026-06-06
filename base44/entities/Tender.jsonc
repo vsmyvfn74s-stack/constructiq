@@ -128,7 +128,19 @@
           },
           "folder_path": {
             "type": "string",
-            "description": "Relative folder path e.g. 'TenderPackage/Architectural/' \u2014 empty string means root"
+            "description": "Relative folder path e.g. 'Drawings/Architectural' \u2014 empty string means root"
+          },
+          "folder_id": {
+            "type": "string",
+            "description": "ID of the Folder entity record for this document's folder"
+          },
+          "relative_path": {
+            "type": "string",
+            "description": "Full relative path including filename e.g. 'Drawings/Architectural/A101.pdf'"
+          },
+          "upload_batch_id": {
+            "type": "string",
+            "description": "Batch identifier for grouping files uploaded together"
           },
           "uploaded_at": {
             "type": "string"

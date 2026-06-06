@@ -1,3 +1,18 @@
+/**
+ * TenderDocuments – Production-grade document package uploader.
+ *
+ * Drag & drop  →  walkEntry (webkitGetAsEntry, unlimited depth)
+ * Select Folder →  webkitdirectory input + webkitRelativePath
+ * Both feed into the same extractUploadPackage() pipeline.
+ *
+ * Pipeline:
+ *   1. extractUploadPackage  – normalise, deduplicate folders, sort
+ *   2. findDuplicates        – detect existing docs, prompt user
+ *   3. createFolders         – create Folder records (parent-first, skip existing)
+ *   4. runBatchUpload        – 5 concurrent uploads, retry 1s/2s/4s, collect failures
+ *   5. save                  – append successDocs to tender.documents
+ */
+
 import React, { useState, useRef } from 'react';
 import { base44 } from '@/api/base44Client';
 import { Button } from '@/components/ui/button';
@@ -5,179 +20,229 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
-import { Upload, Download, FileText, Loader2, AlertTriangle, X, FolderOpen } from 'lucide-react';
-import DocTable from './DocTable';
-import { format } from 'date-fns';
+import { Upload, Download, FileText, Loader2, FolderOpen } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import DocTable from './DocTable';
+import UploadProgressModal from './UploadProgressModal';
+import {
+  walkEntry,
+  extractUploadPackage,
+  findDuplicates,
+  createFolders,
+  runBatchUpload,
+} from '@/lib/tenderUploadEngine';
 
 const CATEGORIES = ['Plans', 'Specifications', 'Bill of Quantities', 'Schedule', 'Contract', 'Other'];
 
-const FILE_ICONS = {
-  pdf: '📄', doc: '📝', docx: '📝', xls: '📊', xlsx: '📊',
-  png: '🖼', jpg: '🖼', jpeg: '🖼', dwg: '📐', dxf: '📐', zip: '🗜',
+const INITIAL_STATE = {
+  phase: 'idle',          // 'confirm-duplicates' | 'creating-folders' | 'uploading' | 'complete' | 'error'
+  foldersTotal: 0,
+  foldersCreated: 0,
+  filesTotal: 0,
+  filesUploaded: 0,
+  failedCount: 0,
+  currentFile: '',
+  failedFiles: [],
+  successDocs: [],
+  duplicates: [],
+  pendingPackage: null,   // { folders, files } waiting for duplicate decision
+  duplicateAction: 'version',
+  errorMessage: '',
 };
 
-const ALLOWED_EXTS = ['pdf', 'doc', 'docx', 'xls', 'xlsx', 'dwg', 'dxf', 'png', 'jpg', 'jpeg', 'zip'];
-
-function getExt(name) {
-  return (name || '').split('.').pop()?.toLowerCase() || '';
-}
-
 export default function TenderDocuments({ tender, onUpdate, canManage }) {
+  const [uploadState, setUploadState] = useState(INITIAL_STATE);
   const [showUpload, setShowUpload] = useState(false);
   const [uploadForm, setUploadForm] = useState({ name: '', category: 'Plans', file: null });
-  const [uploading, setUploading] = useState(false);
+  const [singleUploading, setSingleUploading] = useState(false);
   const [isDragOver, setIsDragOver] = useState(false);
   const [downloadingAll, setDownloadingAll] = useState(false);
-  const [uploadProgress, setUploadProgress] = useState({ current: 0, total: 0 });
-  const [uploadError, setUploadError] = useState(null);
-  const folderInputRef = useRef(null);
 
+  const folderInputRef = useRef(null);
   const docs = tender.documents || [];
 
-  // Unified upload: accepts array of { file, folder_path }
-  const uploadFilesWithPaths = async (filesWithPaths) => {
-    if (!filesWithPaths.length) return;
-    setUploading(true);
-    setUploadError(null);
-    setUploadProgress({ current: 0, total: filesWithPaths.length });
-    const newDocs = [];
-    const errors = [];
-    let uploaded = 0;
-    for (const { file, folder_path } of filesWithPaths) {
-      try {
-        const { file_url } = await base44.integrations.Core.UploadFile({ file });
-        newDocs.push({
-          name: file.name.replace(/\.[^.]+$/, ''),
-          file_url,
-          file_type: (file.name.split('.').pop() || 'File').toUpperCase(),
-          category: 'Other',
-          folder_path: folder_path || '',
-          uploaded_at: new Date().toISOString(),
-        });
-        uploaded++;
-        setUploadProgress({ current: uploaded, total: filesWithPaths.length });
-      } catch (err) {
-        errors.push(`${file.name}: ${err.message}`);
-      }
-    }
-    if (newDocs.length) await onUpdate({ documents: [...docs, ...newDocs] });
-    setUploading(false);
-    setUploadProgress({ current: 0, total: 0 });
-    if (errors.length) setUploadError(`${uploaded} uploaded, ${errors.length} failed: ${errors[0]}`);
-  };
+  // ── Core upload pipeline ────────────────────────────────────────────────
 
-  // "Select Folder" button handler — uses webkitRelativePath
-  const handleFolderSelect = async (e) => {
-    const files = Array.from(e.target.files || []);
-    e.target.value = '';
-    if (!files.length) return;
-    const filesWithPaths = files
-      .filter(f => ALLOWED_EXTS.includes(getExt(f.name)))
-      .map(file => {
-        // webkitRelativePath = "RootFolder/SubFolder/file.pdf"
-        // folder_path = "RootFolder/SubFolder/" (drop the filename)
-        const rel = file.webkitRelativePath || file.name;
-        const parts = rel.split('/');
-        const folder_path = parts.length > 1 ? parts.slice(0, -1).join('/') + '/' : '';
-        return { file, folder_path };
+  async function startUpload(pkg, duplicateAction) {
+    const { folders, files } = pkg;
+    const batchId = `batch_${Date.now()}`;
+
+    setUploadState({
+      ...INITIAL_STATE,
+      phase: 'creating-folders',
+      duplicateAction,
+      foldersTotal: folders.length,
+      filesTotal: files.length,
+    });
+
+    // Phase 5 – Create all folders before uploading any files
+    let folderMap;
+    try {
+      folderMap = await createFolders(folders, tender.id, ({ foldersCreated }) => {
+        setUploadState(s => ({ ...s, foldersCreated }));
       });
-    await uploadFilesWithPaths(filesWithPaths);
-  };
-
-  const collectFiles = async (entry, folderPath = '') => {
-    const results = [];
-    if (entry.isFile) {
-      const file = await new Promise(res => entry.file(res));
-      if (ALLOWED_EXTS.includes(getExt(file.name))) {
-        results.push({ file, folder_path: folderPath });
-      }
-    } else if (entry.isDirectory) {
-      const reader = entry.createReader();
-      const entries = [];
-      let batch;
-      do {
-        batch = await new Promise(res => reader.readEntries(res));
-        entries.push(...batch);
-      } while (batch.length > 0);
-      for (const child of entries) {
-        const sub = await collectFiles(child, `${folderPath}${entry.name}/`);
-        results.push(...sub);
-      }
+    } catch (err) {
+      setUploadState(s => ({ ...s, phase: 'error', errorMessage: `Folder creation failed: ${err.message}` }));
+      return;
     }
-    return results;
-  };
 
-  const handleDrop = async (e) => {
+    // Phase 6 – Batch upload
+    setUploadState(s => ({ ...s, phase: 'uploading' }));
+
+    const { successDocs, failedFiles } = await runBatchUpload({
+      files,
+      folderMap,
+      tenderId: tender.id,
+      batchId,
+      duplicateAction,
+      existingDocs: docs,
+      onProgress: ({ uploaded, failedCount, current }) => {
+        setUploadState(s => ({
+          ...s,
+          ...(uploaded !== undefined && { filesUploaded: uploaded }),
+          ...(failedCount !== undefined && { failedCount }),
+          ...(current !== undefined && { currentFile: current }),
+        }));
+      },
+    });
+
+    // Save successDocs to tender
+    if (successDocs.length > 0) {
+      // For 'replace': remove old docs that share the same name+folder_path
+      let updatedDocs = [...docs];
+      if (duplicateAction === 'replace') {
+        const replacedKeys = new Set(successDocs.map(d => `${d.folder_path || ''}|${d.name}`));
+        updatedDocs = updatedDocs.filter(d => !replacedKeys.has(`${d.folder_path || ''}|${d.name}`));
+      }
+      await onUpdate({ documents: [...updatedDocs, ...successDocs] });
+    }
+
+    setUploadState(s => ({ ...s, phase: 'complete', successDocs, failedFiles }));
+  }
+
+  // Entry point for both drag-drop and folder picker
+  async function handleFilesCollected(filesWithRelPaths) {
+    const pkg = extractUploadPackage(filesWithRelPaths);
+    if (!pkg.files.length) return;
+
+    const dups = findDuplicates(pkg.files, docs);
+    if (dups.length > 0) {
+      // Pause and ask user how to handle duplicates
+      setUploadState({
+        ...INITIAL_STATE,
+        phase: 'confirm-duplicates',
+        duplicates: dups,
+        pendingPackage: pkg,
+        filesTotal: pkg.files.length,
+        foldersTotal: pkg.folders.length,
+      });
+    } else {
+      await startUpload(pkg, 'version');
+    }
+  }
+
+  // ── Phase 2 – Drag & Drop ───────────────────────────────────────────────
+  async function handleDrop(e) {
     e.preventDefault();
     setIsDragOver(false);
     if (!canManage) return;
 
     const items = Array.from(e.dataTransfer.items || []);
-    let allFiles = [];
+    const allFiles = [];
 
-    if (items.length && items[0].webkitGetAsEntry) {
-      for (const item of items) {
-        const entry = item.webkitGetAsEntry?.();
-        if (entry) {
-          const found = await collectFiles(entry);
-          allFiles.push(...found);
-        }
+    // Use webkitGetAsEntry() for full folder tree traversal
+    for (const item of items) {
+      const entry = item.webkitGetAsEntry?.();
+      if (entry) {
+        const found = await walkEntry(entry);
+        allFiles.push(...found);
       }
-    } else {
-      allFiles = Array.from(e.dataTransfer.files)
-        .filter(f => ALLOWED_EXTS.includes(getExt(f.name)))
-        .map(file => ({ file, folder_path: '' }));
     }
 
-    await uploadFilesWithPaths(allFiles);
-  };
+    // Fallback for browsers without FileSystem API
+    if (!allFiles.length) {
+      Array.from(e.dataTransfer.files).forEach(file => {
+        allFiles.push({ file, relativePath: file.name });
+      });
+    }
 
-  const handleUpload = async () => {
+    await handleFilesCollected(allFiles);
+  }
+
+  // ── Phase 3 – Select Folder ─────────────────────────────────────────────
+  async function handleFolderSelect(e) {
+    const files = Array.from(e.target.files || []);
+    e.target.value = ''; // reset so same folder can be re-selected
+    if (!files.length) return;
+
+    // webkitRelativePath = "RootFolder/Sub/file.pdf"
+    const filesWithPaths = files.map(file => ({
+      file,
+      relativePath: file.webkitRelativePath || file.name,
+    }));
+
+    await handleFilesCollected(filesWithPaths);
+  }
+
+  // ── Duplicate resolution ─────────────────────────────────────────────────
+  async function handleDuplicateAction(action) {
+    const pkg = uploadState.pendingPackage;
+    if (!pkg) return;
+    await startUpload(pkg, action);
+  }
+
+  // ── Retry failed files (Phase 10) ────────────────────────────────────────
+  async function handleRetryFailed() {
+    const retryItems = uploadState.failedFiles.map(({ file, relativePath }) => ({ file, relativePath }));
+    const pkg = extractUploadPackage(retryItems);
+    await startUpload(pkg, uploadState.duplicateAction || 'version');
+  }
+
+  // ── Single file upload (unchanged functionality) ─────────────────────────
+  async function handleSingleUpload() {
     if (!uploadForm.file || !uploadForm.name) return;
-    setUploading(true);
+    setSingleUploading(true);
     const { file_url } = await base44.integrations.Core.UploadFile({ file: uploadForm.file });
     const newDoc = {
       name: uploadForm.name,
       file_url,
       file_type: uploadForm.file.name.split('.').pop()?.toUpperCase() || 'File',
       category: uploadForm.category,
+      folder_path: '',
       uploaded_at: new Date().toISOString(),
     };
     await onUpdate({ documents: [...docs, newDoc] });
-    setUploading(false);
+    setSingleUploading(false);
     setShowUpload(false);
     setUploadForm({ name: '', category: 'Plans', file: null });
-  };
+  }
 
-  const handleDelete = async (idx) => {
+  async function handleDelete(idx) {
     await onUpdate({ documents: docs.filter((_, i) => i !== idx) });
-  };
+  }
 
-  const handleCategoryChange = async (idx, category) => {
+  async function handleCategoryChange(idx, category) {
     await onUpdate({ documents: docs.map((d, i) => i === idx ? { ...d, category } : d) });
-  };
+  }
 
-  const handleDownloadAll = async () => {
+  // ── Download all as ZIP ──────────────────────────────────────────────────
+  async function handleDownloadAll() {
     setDownloadingAll(true);
     try {
       const JSZip = (await import('https://cdn.jsdelivr.net/npm/jszip@3.10.1/+esm')).default;
       const zip = new JSZip();
-      const folder = zip.folder(tender.title || 'Tender Documents');
-
+      const root = zip.folder(tender.title || 'Tender Documents');
       for (const doc of docs) {
         if (!doc.file_url) continue;
         try {
-          const response = await fetch(doc.file_url);
-          const blob = await response.blob();
+          const blob = await fetch(doc.file_url).then(r => r.blob());
           const ext = doc.file_url.split('.').pop().split('?')[0];
           const filePath = doc.folder_path
-            ? `${doc.folder_path}${doc.name || 'document'}.${ext}`
+            ? `${doc.folder_path}/${doc.name || 'document'}.${ext}`
             : `${doc.name || 'document'}.${ext}`;
-          folder.file(filePath, blob);
-        } catch (_e) { /* skip failed files */ }
+          root.file(filePath, blob);
+        } catch (_) { /* skip failed fetches */ }
       }
-
       const content = await zip.generateAsync({ type: 'blob' });
       const url = URL.createObjectURL(content);
       const a = document.createElement('a');
@@ -190,28 +255,26 @@ export default function TenderDocuments({ tender, onUpdate, canManage }) {
     } finally {
       setDownloadingAll(false);
     }
-  };
+  }
 
+  // ── Render ───────────────────────────────────────────────────────────────
   return (
     <div
-      onDragOver={(e) => { e.preventDefault(); if (canManage) setIsDragOver(true); }}
-      onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget)) setIsDragOver(false); }}
+      onDragOver={e => { e.preventDefault(); if (canManage) setIsDragOver(true); }}
+      onDragLeave={e => { if (!e.currentTarget.contains(e.relatedTarget)) setIsDragOver(false); }}
       onDrop={handleDrop}
-      className={cn(
-        'relative rounded-lg transition-all',
-        isDragOver && 'ring-2 ring-primary ring-offset-2'
-      )}
+      className={cn('relative rounded-lg transition-all', isDragOver && 'ring-2 ring-primary ring-offset-2')}
     >
-      {/* Drag overlay */}
+      {/* Drag-over overlay */}
       {isDragOver && canManage && (
         <div className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-primary/5 border-2 border-dashed border-primary rounded-lg pointer-events-none">
           <Upload className="w-10 h-10 text-primary mb-2" />
-          <p className="text-sm font-semibold text-primary">Drop files to upload</p>
-          <p className="text-xs text-muted-foreground mt-1">PDF, DOCX, XLSX, DWG, ZIP, Images</p>
+          <p className="text-sm font-semibold text-primary">Drop files or folders here</p>
+          <p className="text-xs text-muted-foreground mt-1">Folder structure will be preserved exactly</p>
         </div>
       )}
 
-      {/* Hidden folder input */}
+      {/* Hidden folder input — webkitdirectory preserves full paths */}
       <input
         ref={folderInputRef}
         type="file"
@@ -222,24 +285,42 @@ export default function TenderDocuments({ tender, onUpdate, canManage }) {
         onChange={handleFolderSelect}
       />
 
+      {/* Toolbar */}
       <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
         <p className="text-sm text-muted-foreground">
           {docs.length} document{docs.length !== 1 ? 's' : ''}
-          {canManage && <span className="ml-2 text-xs">· drag &amp; drop files or folders</span>}
+          {canManage && (
+            <span className="ml-2 text-xs">· drag &amp; drop files or folders to upload</span>
+          )}
         </p>
         <div className="flex items-center gap-2">
           {docs.length > 0 && (
-            <Button onClick={handleDownloadAll} disabled={downloadingAll} variant="outline" size="sm" className="gap-2">
+            <Button
+              onClick={handleDownloadAll}
+              disabled={downloadingAll}
+              variant="outline"
+              size="sm"
+              className="gap-2"
+            >
               {downloadingAll ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
-              {downloadingAll ? 'Preparing...' : `Download All (${docs.length})`}
+              {downloadingAll ? 'Preparing…' : `Download All (${docs.length})`}
             </Button>
           )}
           {canManage && (
             <>
-              <Button onClick={() => folderInputRef.current?.click()} disabled={uploading} variant="outline" className="gap-2" size="sm">
+              <Button
+                onClick={() => folderInputRef.current?.click()}
+                variant="outline"
+                size="sm"
+                className="gap-2"
+              >
                 <FolderOpen className="w-4 h-4" /> Select Folder
               </Button>
-              <Button onClick={() => setShowUpload(true)} disabled={uploading} className="gap-2" size="sm">
+              <Button
+                onClick={() => setShowUpload(true)}
+                size="sm"
+                className="gap-2"
+              >
                 <Upload className="w-4 h-4" /> Upload File
               </Button>
             </>
@@ -247,49 +328,38 @@ export default function TenderDocuments({ tender, onUpdate, canManage }) {
         </div>
       </div>
 
-      {/* Upload progress */}
-      {uploadProgress.total > 0 && (
-        <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
-          <div className="flex items-center gap-2 text-sm text-blue-800 mb-2">
-            <Loader2 className="w-4 h-4 animate-spin flex-shrink-0" />
-            Uploading {uploadProgress.current} of {uploadProgress.total} files...
-          </div>
-          <div className="w-full bg-blue-200 rounded-full h-1.5">
-            <div
-              className="bg-blue-600 h-1.5 rounded-full transition-all"
-              style={{ width: `${(uploadProgress.current / uploadProgress.total) * 100}%` }}
-            />
-          </div>
-        </div>
-      )}
-      {uploadError && (
-        <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg flex items-start gap-2">
-          <AlertTriangle className="w-4 h-4 text-red-600 flex-shrink-0 mt-0.5" />
-          <p className="text-sm text-red-800 flex-1">{uploadError}</p>
-          <button onClick={() => setUploadError(null)} className="text-red-600 flex-shrink-0">
-            <X className="w-4 h-4" />
-          </button>
-        </div>
-      )}
-
+      {/* Document table or empty state */}
       {docs.length === 0 ? (
-        <div className={cn(
-          'text-center py-16 border-2 border-dashed rounded-lg text-muted-foreground transition-colors',
-          canManage ? 'cursor-default' : ''
-        )}>
+        <div className="text-center py-16 border-2 border-dashed rounded-lg text-muted-foreground">
           <FileText className="w-10 h-10 mx-auto mb-3 opacity-30" />
           <p className="text-sm">No documents uploaded yet</p>
           {canManage && (
-            <p className="text-xs mt-1">Upload files using the button above or drag &amp; drop here</p>
+            <p className="text-xs mt-1">Drag &amp; drop folders or use the buttons above</p>
           )}
         </div>
       ) : (
-        <DocTable docs={docs} canManage={canManage} onCategoryChange={handleCategoryChange} onDelete={handleDelete} />
+        <DocTable
+          docs={docs}
+          canManage={canManage}
+          onCategoryChange={handleCategoryChange}
+          onDelete={handleDelete}
+        />
       )}
 
+      {/* Upload progress / duplicate resolution modal */}
+      <UploadProgressModal
+        state={uploadState}
+        onDuplicateAction={handleDuplicateAction}
+        onRetryFailed={handleRetryFailed}
+        onClose={() => setUploadState(INITIAL_STATE)}
+      />
+
+      {/* Single file upload dialog */}
       <Dialog open={showUpload} onOpenChange={setShowUpload}>
         <DialogContent className="sm:max-w-md">
-          <DialogHeader><DialogTitle>Upload Document</DialogTitle></DialogHeader>
+          <DialogHeader>
+            <DialogTitle>Upload Document</DialogTitle>
+          </DialogHeader>
           <div className="space-y-4">
             <div>
               <Label>Document Name *</Label>
@@ -301,7 +371,10 @@ export default function TenderDocuments({ tender, onUpdate, canManage }) {
             </div>
             <div>
               <Label>Category</Label>
-              <Select value={uploadForm.category} onValueChange={v => setUploadForm(f => ({ ...f, category: v }))}>
+              <Select
+                value={uploadForm.category}
+                onValueChange={v => setUploadForm(f => ({ ...f, category: v }))}
+              >
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
                   {CATEGORIES.map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}
@@ -319,8 +392,11 @@ export default function TenderDocuments({ tender, onUpdate, canManage }) {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowUpload(false)}>Cancel</Button>
-            <Button onClick={handleUpload} disabled={uploading || !uploadForm.file || !uploadForm.name}>
-              {uploading ? 'Uploading...' : 'Upload'}
+            <Button
+              onClick={handleSingleUpload}
+              disabled={singleUploading || !uploadForm.file || !uploadForm.name}
+            >
+              {singleUploading ? 'Uploading…' : 'Upload'}
             </Button>
           </DialogFooter>
         </DialogContent>
