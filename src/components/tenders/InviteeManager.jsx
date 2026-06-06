@@ -168,8 +168,10 @@ export default function InviteeManager({ tender, onUpdate, canManage }) {
     }
     const newInvitee = { ...form, id: uuidv4(), token: uuidv4(), status: 'Pending', invited_at: null, submission: null };
     await onUpdate({ invitees: [...invitees, newInvitee] });
-    // Always upsert into TenderContact directory
-    await upsertContact(contacts, form, queryClient);
+    // Only upsert into TenderContact directory if user has permission
+    if (user?.role === 'admin' || user?.role === 'pricing') {
+      await upsertContact(contacts, form, queryClient);
+    }
     setForm(emptyForm);
     setNameSearch('');
     setNameSuggestions([]);
@@ -417,7 +419,9 @@ export default function InviteeManager({ tender, onUpdate, canManage }) {
                   </Select>
                 </div>
               </div>
-              <p className="text-xs text-muted-foreground">Contact will be saved to the subcontractor database automatically.</p>
+              <p className="text-xs text-muted-foreground">
+                {(user?.role === 'admin' || user?.role === 'pricing') ? 'Contact will be saved to the subcontractor database.' : 'Contact will be added to this tender only.'}
+              </p>
               <Button onClick={addInvitee} disabled={!form.full_name} className="gap-2" size="sm">
                 <Plus className="w-4 h-4" /> Add Invitee
               </Button>
