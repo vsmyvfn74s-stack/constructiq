@@ -4,16 +4,14 @@ import { Resend } from 'npm:resend@4.0.0';
 /**
  * sendTenderInvitations
  *
- * Accepts tenderInfo + invitees array directly from the frontend caller.
- * This avoids the broken asServiceRole filter({ id }) pattern — the frontend
- * already has the tender loaded and the tokens just assigned, so re-fetching
- * the tender by its built-in id field is unnecessary and unreliable.
+ * Accepts tenderInfo + invitees array directly from the frontend.
+ * Creates a TenderInvitation record per invitee for O(1) token lookup.
  *
  * Payload:
- *   tenderId    – for logging only
+ *   tenderId    – Tender record ID
  *   tenderInfo  – { title, tender_number, location, closing_date, description,
  *                   trade_packages, client_name, architect_name, project_manager_name }
- *   invitees    – [{ id, email, full_name, token }]  (only the ones to email)
+ *   invitees    – [{ id, email, full_name, token }]
  *   appUrl      – window.location.origin
  */
 Deno.serve(async (req) => {
@@ -25,10 +23,8 @@ Deno.serve(async (req) => {
       return Response.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    // Fail fast if Resend is not configured
     const RESEND_API_KEY = Deno.env.get('RESEND_API_KEY');
     if (!RESEND_API_KEY) {
-      console.error('RESEND_API_KEY is not set');
       return Response.json({ error: 'Email service not configured — RESEND_API_KEY missing', sent: 0, failed: 0 });
     }
 
@@ -38,14 +34,16 @@ Deno.serve(async (req) => {
     if (!inviteesToEmail?.length) {
       return Response.json({ error: 'No invitees provided', sent: 0, failed: 0 });
     }
-
     if (!tenderInfo?.title) {
       return Response.json({ error: 'tenderInfo is required', sent: 0, failed: 0 });
+    }
+    if (!tenderId) {
+      return Response.json({ error: 'tenderId is required', sent: 0, failed: 0 });
     }
 
     console.log(`sendTenderInvitations: tenderId=${tenderId}, invitees=${inviteesToEmail.length}`);
 
-    // Fetch branding + email templates — no tender re-fetch needed
+    // Fetch branding + email templates
     const [templates, brandings] = await Promise.all([
       base44.asServiceRole.entities.EmailTemplate.list(),
       base44.asServiceRole.entities.EmailBranding.list(),
@@ -58,7 +56,6 @@ Deno.serve(async (req) => {
     const senderEmail = branding.sender_email || 'noreply@totalhomesolutions.co.nz';
     const fromEmail = `${fromName} <${senderEmail}>`;
 
-    // Resolve template
     const tpl = templates.find(t => t.template_key === 'tender_invitation');
     const defaultSubject = `Tender Invitation — ${tenderInfo.tender_number || ''}: ${tenderInfo.title}`;
     const defaultBody = `You have been invited to submit pricing for {title}.\n\nPlease click the link below to view the tender documents and submit your pricing:\n\n{submission_link}\n\nClosing Date: {closing_date}\n\nRegards,\n{sender_name}`;
@@ -67,8 +64,9 @@ Deno.serve(async (req) => {
     let failed = 0;
     const errors = [];
 
+    const sentDate = new Date().toISOString();
+
     for (const inv of inviteesToEmail) {
-      // Guard: skip invitees missing email or token
       if (!inv.email) {
         errors.push(`${inv.full_name || 'Unknown'}: no email address`);
         failed++;
@@ -104,9 +102,7 @@ Deno.serve(async (req) => {
       const rawBody    = tpl?.body_html || tpl?.body_text        || defaultBody;
       const bodyText   = replace(rawBody);
       const isHtml     = rawBody.trim().startsWith('<') || !!tpl?.body_html;
-      const bodyContent = isHtml
-        ? replace(rawBody)
-        : replace(rawBody).replace(/\n/g, '<br>');
+      const bodyContent = isHtml ? replace(rawBody) : replace(rawBody).replace(/\n/g, '<br>');
 
       const htmlBody = `<!DOCTYPE html>
 <html><head><meta charset="UTF-8"></head>
@@ -152,6 +148,25 @@ Deno.serve(async (req) => {
         });
         sent++;
         console.log(`✓ Email sent to ${inv.email}`);
+
+        // Create/upsert TenderInvitation record for O(1) future lookups
+        try {
+          const existing = await base44.asServiceRole.entities.TenderInvitation.filter({ token: inv.token });
+          if (existing.length === 0) {
+            await base44.asServiceRole.entities.TenderInvitation.create({
+              token:          inv.token,
+              tender_id:      tenderId,
+              invitee_email:  inv.email,
+              invitee_name:   inv.full_name || '',
+              status:         'Sent',
+              sent_date:      sentDate,
+            });
+          }
+        } catch (dbErr) {
+          // Non-blocking — email was sent, DB record is supplementary
+          console.warn(`Could not create TenderInvitation for ${inv.email}:`, dbErr?.message);
+        }
+
       } catch (e) {
         failed++;
         const errMsg = `${inv.full_name} (${inv.email}): ${e?.message || 'unknown'}`;

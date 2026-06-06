@@ -11,34 +11,31 @@ Deno.serve(async (req) => {
       return Response.json({ error: 'Token required' }, { status: 400 });
     }
 
-    // Find tender with this invitee token — check active tenders first for performance
-    let tender = null;
-    let inviteeIndex = -1;
+    // O(1) token lookup via TenderInvitation entity
+    const invitations = await base44.asServiceRole.entities.TenderInvitation.filter({ token });
+    const invitation = invitations[0];
 
-    const activeTenders = await base44.asServiceRole.entities.Tender.filter(
-      { status: 'Issued' }, '-created_date', 200
-    );
-    for (const t of activeTenders) {
-      const idx = (t.invitees || []).findIndex(inv => inv.token === token);
-      if (idx !== -1) { tender = t; inviteeIndex = idx; break; }
-    }
-
-    // If not found in active, check all (covers edge cases like Closed tenders)
-    if (!tender) {
-      const allTenders = await base44.asServiceRole.entities.Tender.list('-created_date', 500);
-      for (const t of allTenders) {
-        const idx = (t.invitees || []).findIndex(inv => inv.token === token);
-        if (idx !== -1) { tender = t; inviteeIndex = idx; break; }
-      }
-    }
-
-    if (!tender || inviteeIndex === -1) {
+    if (!invitation) {
       return Response.json({ error: 'Invalid or expired link' }, { status: 404 });
+    }
+
+    const tender = await base44.asServiceRole.entities.Tender.get(invitation.tender_id);
+    if (!tender) {
+      return Response.json({ error: 'Tender not found' }, { status: 404 });
+    }
+
+    const inviteeIndex = (tender.invitees || []).findIndex(inv => inv.token === token);
+    if (inviteeIndex === -1) {
+      return Response.json({ error: 'Invitee not found in tender' }, { status: 404 });
     }
 
     const invitee = tender.invitees[inviteeIndex];
 
     if (action === 'get') {
+      // Mark as Viewed if still Sent
+      if (invitation.status === 'Sent') {
+        await base44.asServiceRole.entities.TenderInvitation.update(invitation.id, { status: 'Viewed' });
+      }
       return Response.json({
         tender: {
           id: tender.id,
@@ -68,7 +65,6 @@ Deno.serve(async (req) => {
       }
 
       if (tender.closing_date) {
-        // closing_date may be a full ISO datetime e.g. "2026-08-12T16:00:00"
         const closingMs = new Date(tender.closing_date).getTime();
         if (!isNaN(closingMs) && Date.now() > closingMs) {
           return Response.json({ error: 'The closing date for this tender has passed.' }, { status: 400 });
@@ -93,12 +89,19 @@ Deno.serve(async (req) => {
         invitees: updatedInvitees
       });
 
-      // Fetch branding for brand colour
+      // Update TenderInvitation record
+      await base44.asServiceRole.entities.TenderInvitation.update(invitation.id, {
+        status: 'Submitted',
+        submitted_date: new Date().toISOString(),
+      });
+
+      // Fetch branding
       const brandings = await base44.asServiceRole.entities.EmailBranding.list();
       const branding = brandings[0] || {};
       const brandColour = branding.brand_colour || '#1a56db';
       const fromName = branding.sender_name || branding.company_name || 'ConstructIQ';
-      const fromEmail = `${fromName} <noreply@totalhomesolutions.co.nz>`;
+      const senderEmail = branding.sender_email || 'noreply@totalhomesolutions.co.nz';
+      const fromEmail = `${fromName} <${senderEmail}>`;
       const resend = new Resend(Deno.env.get('RESEND_API_KEY'));
 
       // Confirmation email to invitee
@@ -132,7 +135,7 @@ Deno.serve(async (req) => {
             html: htmlBody,
           });
         }
-      } catch (_e) { /* email failure is non-blocking */ }
+      } catch (_e) { /* non-blocking */ }
 
       // Notify creator
       try {
@@ -174,7 +177,7 @@ Deno.serve(async (req) => {
             html: creatorHtml,
           });
         }
-      } catch (_e) { /* email failure is non-blocking */ }
+      } catch (_e) { /* non-blocking */ }
 
       return Response.json({ success: true });
     }
