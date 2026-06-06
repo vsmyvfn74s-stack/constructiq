@@ -168,10 +168,8 @@ export default function InviteeManager({ tender, onUpdate, canManage }) {
     }
     const newInvitee = { ...form, trade: form.trade === 'NONE' ? '' : (form.trade || ''), id: uuidv4(), token: uuidv4(), status: 'Pending', invited_at: null, submission: null };
     await onUpdate({ invitees: [...invitees, newInvitee] });
-    // Only upsert into TenderContact directory if user has permission
-    if (['admin', 'pricing', 'internal'].includes(user?.role)) {
-      await upsertContact(contacts, form, queryClient);
-    }
+    // Always attempt upsert — entity RLS enforces write permissions
+    await upsertContact(contacts, form, queryClient);
     setForm(emptyForm);
     setNameSearch('');
     setNameSuggestions([]);

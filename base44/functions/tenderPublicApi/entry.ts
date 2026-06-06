@@ -27,18 +27,17 @@ Deno.serve(async (req) => {
       );
     }
 
-    const inviteeIndex = (tender.invitees || []).findIndex(inv => inv.token === token);
-    if (inviteeIndex === -1) {
-      return Response.json({ error: 'Invitee not found in tender' }, { status: 404 });
-    }
-
-    const invitee = tender.invitees[inviteeIndex];
-
     if (action === 'get') {
-      // Mark as Viewed if still Sent
+      // Mark as Viewed if still Sent — track opened_date
       if (invitation.status === 'Sent') {
-        await base44.asServiceRole.entities.TenderInvitation.update(invitation.id, { status: 'Viewed' });
+        await base44.asServiceRole.entities.TenderInvitation.update(invitation.id, {
+          status: 'Viewed',
+          opened_date: new Date().toISOString(),
+        });
       }
+
+      // Build invitee data from TenderInvitation (source of truth) + legacy fallback
+      const legacyInvitee = (tender.invitees || []).find(inv => inv.token === token);
       return Response.json({
         tender: {
           id: tender.id,
@@ -52,12 +51,12 @@ Deno.serve(async (req) => {
           status: tender.status,
         },
         invitee: {
-          id: invitee.id,
-          full_name: invitee.full_name,
-          business_name: invitee.business_name,
-          email: invitee.email,
-          status: invitee.status,
-          submission: invitee.submission || null,
+          id: legacyInvitee?.id || invitation.id,
+          full_name: invitation.invitee_name || legacyInvitee?.full_name || '',
+          business_name: legacyInvitee?.business_name || '',
+          email: invitation.invitee_email || legacyInvitee?.email || '',
+          status: invitation.status,
+          submission: legacyInvitee?.submission || null,
         }
       });
     }
@@ -85,25 +84,35 @@ Deno.serve(async (req) => {
         return Response.json({ error: 'Lump sum price is required.' }, { status: 400 });
       }
 
-      const updatedInvitees = [...tender.invitees];
-      updatedInvitees[inviteeIndex] = {
-        ...invitee,
-        status: 'Submitted',
-        submission: {
-          ...submission,
-          submitted_at: new Date().toISOString(),
-        }
-      };
-
-      await base44.asServiceRole.entities.Tender.update(tender.id, {
-        invitees: updatedInvitees
-      });
-
-      // Update TenderInvitation record
+      // Update TenderInvitation — source of truth
+      const submittedAt = new Date().toISOString();
       await base44.asServiceRole.entities.TenderInvitation.update(invitation.id, {
         status: 'Submitted',
-        submitted_date: new Date().toISOString(),
+        submitted_date: submittedAt,
       });
+
+      // Legacy bridge: also update Tender.invitees[] for scoring UI compatibility
+      const invitees = tender.invitees || [];
+      const tokenIndex = invitees.findIndex(inv => inv.token === token);
+      if (tokenIndex !== -1) {
+        const updatedInvitees = [...invitees];
+        updatedInvitees[tokenIndex] = {
+          ...updatedInvitees[tokenIndex],
+          status: 'Submitted',
+          submission: {
+            ...submission,
+            submitted_at: submittedAt,
+          }
+        };
+        await base44.asServiceRole.entities.Tender.update(tender.id, { invitees: updatedInvitees });
+      }
+
+      // Use invitation data for emails (TenderInvitation is source of truth)
+      const invitee = {
+        full_name: invitation.invitee_name || '',
+        email: invitation.invitee_email || '',
+        business_name: invitees[tokenIndex]?.business_name || '',
+      };
 
       // Fetch branding
       const brandings = await base44.asServiceRole.entities.EmailBranding.list();

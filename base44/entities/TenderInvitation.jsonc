@@ -10,6 +10,10 @@
       "type": "string",
       "description": "ID of the owning Tender record"
     },
+    "contact_id": {
+      "type": "string",
+      "description": "ID of the TenderContact record (source of truth for subcontractor details)"
+    },
     "invitee_email": {
       "type": "string"
     },
@@ -29,6 +33,10 @@
     "sent_date": {
       "type": "string",
       "description": "ISO datetime when invitation was sent"
+    },
+    "opened_date": {
+      "type": "string",
+      "description": "ISO datetime when invitation link was first opened"
     },
     "submitted_date": {
       "type": "string",

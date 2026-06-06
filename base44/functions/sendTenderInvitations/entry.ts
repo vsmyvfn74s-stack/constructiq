@@ -149,23 +149,31 @@ Deno.serve(async (req) => {
         sent++;
         console.log(`✓ Email sent to ${inv.email}`);
 
-        // Create/upsert TenderInvitation record for O(1) future lookups
+        // Upsert TenderInvitation record — source of truth for token lookup
         try {
-          const existing = await base44.asServiceRole.entities.TenderInvitation.filter({ token: inv.token });
-          if (existing.length === 0) {
+          const existingRecords = await base44.asServiceRole.entities.TenderInvitation.filter({ token: inv.token });
+          if (existingRecords.length > 0) {
+            await base44.asServiceRole.entities.TenderInvitation.update(existingRecords[0].id, {
+              invitee_email: inv.email,
+              invitee_name:  inv.full_name || '',
+              status:        'Sent',
+              sent_date:     sentDate,
+            });
+            console.log(`TenderInvitation updated: token=${inv.token}`);
+          } else {
             await base44.asServiceRole.entities.TenderInvitation.create({
-              token:          inv.token,
-              tender_id:      tenderId,
-              invitee_email:  inv.email,
-              invitee_name:   inv.full_name || '',
-              status:         'Sent',
-              sent_date:      sentDate,
+              token:         inv.token,
+              tender_id:     tenderId,
+              invitee_email: inv.email,
+              invitee_name:  inv.full_name || '',
+              status:        'Sent',
+              sent_date:     sentDate,
             });
             console.log(`TenderInvitation created: token=${inv.token} tender_id=${tenderId}`);
           }
         } catch (dbErr) {
-          // Non-blocking — email was sent, DB record is supplementary
-          console.warn(`Could not create TenderInvitation for ${inv.email}:`, dbErr?.message);
+          // Non-blocking — email was sent, TenderInvitation is supplementary until full migration
+          console.warn(`Could not upsert TenderInvitation for ${inv.email}:`, dbErr?.message);
         }
 
       } catch (e) {

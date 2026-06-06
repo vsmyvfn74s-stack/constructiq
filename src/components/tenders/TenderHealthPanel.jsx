@@ -10,13 +10,17 @@ function computeHealth(tender) {
   const docs     = tender.documents || [];
   const invitees = tender.invitees  || [];
 
-  // Document checks
+  // Document checks — O(1) using Map for duplicate detection
   const docsWithoutUrl = docs.filter(d => !d.file_url);
-  const docKeys        = docs.map(d => `${d.folder_path || ''}|${d.name}`);
-  const dupDocKeySet   = new Set(docKeys.filter((k, i) => docKeys.indexOf(k) !== i));
-  const uniqueFolders  = new Set(docs.map(d => d.folder_path || '').filter(Boolean));
+  const docKeyCounts   = new Map();
+  for (const d of docs) {
+    const k = `${d.folder_path || ''}|${d.name}`;
+    docKeyCounts.set(k, (docKeyCounts.get(k) || 0) + 1);
+  }
+  const dupDocKeySet  = new Set([...docKeyCounts.entries()].filter(([, c]) => c > 1).map(([k]) => k));
+  const uniqueFolders = new Set(docs.map(d => d.folder_path || '').filter(Boolean));
 
-  // Invitee checks
+  // Invitee checks — O(1) using Set
   const invalidEmails = invitees.filter(i => i.email && !EMAIL_RE.test(i.email));
   const missingEmails = invitees.filter(i => !i.email);
   const seenEmails    = new Set();
