@@ -154,13 +154,34 @@ export default function InviteeManager({ tender, onUpdate, canManage }) {
 
       if (toEmail.length > 0) {
         try {
+          // Pass tenderInfo + full invitee objects directly so the backend
+          // doesn't need to re-fetch the tender by id (which is unreliable).
           const result = await base44.functions.invoke('sendTenderInvitations', {
-            tenderId: tender.id,
-            inviteeIds: toEmail.map(i => i.id),
+            tenderId:   tender.id,
+            tenderInfo: {
+              title:                tender.title,
+              tender_number:        tender.tender_number        || '',
+              location:             tender.location             || '',
+              closing_date:         tender.closing_date         || '',
+              description:          tender.description          || '',
+              trade_packages:       tender.trade_packages       || [],
+              client_name:          tender.client_name          || '',
+              architect_name:       tender.architect_name       || '',
+              project_manager_name: tender.project_manager_name || '',
+            },
+            invitees: toEmail.map(inv => ({
+              id:        inv.id,
+              email:     inv.email,
+              full_name: inv.full_name,
+              token:     inv.token,
+            })),
             appUrl: window.location.origin,
           });
-          sent = result.data?.sent ?? 0;
+          sent   = result.data?.sent   ?? 0;
           failed = result.data?.failed ?? 0;
+          if (result.data?.errors?.length > 0) {
+            console.warn('sendTenderInvitations partial failures:', result.data.errors);
+          }
           if (result.data?.error) {
             console.error('sendTenderInvitations error:', result.data.error);
           }

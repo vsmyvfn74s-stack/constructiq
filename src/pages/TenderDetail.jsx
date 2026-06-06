@@ -18,6 +18,7 @@ import InviteeManager from '@/components/tenders/InviteeManager';
 import SubmissionScorer from '@/components/tenders/SubmissionScorer';
 import OutcomePanel from '@/components/tenders/OutcomePanel';
 import ConvertToProjectModal from '@/components/tenders/ConvertToProjectModal';
+import TenderHealthPanel from '@/components/tenders/TenderHealthPanel';
 
 const TRADES = [
   'Electrical', 'Plumbing', 'HVAC', 'Carpentry', 'Masonry',
@@ -468,7 +469,10 @@ export default function TenderDetail() {
 
         {/* Tab 3 — Invitees */}
         <TabsContent value="invitees">
-          <InviteeManager tender={tender} onUpdate={handleUpdate} canManage={canManage} />
+          <div className="space-y-4">
+            <TenderHealthPanel tender={tender} user={user} />
+            <InviteeManager tender={tender} onUpdate={handleUpdate} canManage={canManage} />
+          </div>
         </TabsContent>
 
         {/* Tab 4 — Submissions */}

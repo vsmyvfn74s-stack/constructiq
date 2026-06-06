@@ -26,6 +26,7 @@ export default function EmailBrandingPanel() {
     footer_text: '',
     company_name: '',
     sender_name: '',
+    sender_email: '',
   });
 
   const { data: brandingRecords = [] } = useQuery({
@@ -45,6 +46,7 @@ export default function EmailBrandingPanel() {
         footer_text: branding.footer_text || '',
         company_name: branding.company_name || '',
         sender_name: branding.sender_name || '',
+        sender_email: branding.sender_email || '',
       });
     }
   }, [branding]);
@@ -186,6 +188,17 @@ export default function EmailBrandingPanel() {
             <div>
               <Label className="text-xs mb-1 block">Default Sender Name</Label>
               <Input value={form.sender_name} onChange={e => setForm(f => ({ ...f, sender_name: e.target.value }))} placeholder="John Smith" className="h-8 text-sm" />
+            </div>
+            <div className="sm:col-span-2">
+              <Label className="text-xs mb-1 block">Sender Email Address</Label>
+              <Input
+                type="email"
+                value={form.sender_email}
+                onChange={e => setForm(f => ({ ...f, sender_email: e.target.value }))}
+                placeholder="noreply@yourdomain.com"
+                className="h-8 text-sm"
+              />
+              <p className="text-xs text-muted-foreground mt-0.5">The From address on outgoing emails. Must be a verified domain in Resend.</p>
             </div>
           </div>
 

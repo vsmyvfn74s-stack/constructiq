@@ -29,6 +29,10 @@
     "sender_name": {
       "type": "string",
       "description": "Default From name used in outgoing emails"
+    },
+    "sender_email": {
+      "type": "string",
+      "description": "From email address for outgoing emails e.g. noreply@yourdomain.com. Fallback: noreply@totalhomesolutions.co.nz"
     }
   },
   "required": [],

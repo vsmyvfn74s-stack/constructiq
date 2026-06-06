@@ -68,8 +68,9 @@ Deno.serve(async (req) => {
       }
 
       if (tender.closing_date) {
-        const today = new Date().toISOString().split('T')[0];
-        if (today > tender.closing_date) {
+        // closing_date may be a full ISO datetime e.g. "2026-08-12T16:00:00"
+        const closingMs = new Date(tender.closing_date).getTime();
+        if (!isNaN(closingMs) && Date.now() > closingMs) {
           return Response.json({ error: 'The closing date for this tender has passed.' }, { status: 400 });
         }
       }
