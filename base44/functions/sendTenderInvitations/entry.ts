@@ -18,11 +18,12 @@ Deno.serve(async (req) => {
     }
 
     // Fetch tender, templates and branding server-side via service role
-    const [tender, templates, brandings] = await Promise.all([
-      base44.asServiceRole.entities.Tender.list().then(list => list.find(t => t.id === tenderId)),
+    const [tenderList, templates, brandings] = await Promise.all([
+      base44.asServiceRole.entities.Tender.filter({ id: tenderId }),
       base44.asServiceRole.entities.EmailTemplate.list(),
       base44.asServiceRole.entities.EmailBranding.list(),
     ]);
+    const tender = tenderList[0];
 
     if (!tender) {
       return Response.json({ error: 'Tender not found' }, { status: 404 });
