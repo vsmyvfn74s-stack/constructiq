@@ -2,10 +2,13 @@ import { createClientFromRequest } from 'npm:@base44/sdk@0.8.31';
 
 /**
  * updateTender
- * - Enforces admin/pricing role
- * - Full stack trace logging at every DB step
- * - Cascading delete: TenderInvitation records → Tender
- * - Payload: { tenderId, data } or { tenderId, data: { _delete: true } }
+ *
+ * All Tender write operations execute via service role to bypass entity RLS.
+ * User identity and role are still verified before any operation.
+ *
+ * Payload:
+ *   { tenderId, data }            — update tender fields
+ *   { tenderId, data: { _delete: true } } — cascading delete (deprecated; use deleteTender)
  */
 Deno.serve(async (req) => {
   const log = [];
@@ -18,10 +21,11 @@ Deno.serve(async (req) => {
   try {
     trace('START');
 
-    // ── Auth ──────────────────────────────────────────────────────────────
     const base44 = createClientFromRequest(req);
+    const sr = base44.asServiceRole;
     trace('SDK initialised');
 
+    // ── Auth ──────────────────────────────────────────────────────────────────
     let user;
     try {
       user = await base44.auth.me();
@@ -36,7 +40,7 @@ Deno.serve(async (req) => {
       return fail(`Forbidden — role '${user.role}' not permitted`, 403);
     }
 
-    // ── Parse body ────────────────────────────────────────────────────────
+    // ── Parse body ────────────────────────────────────────────────────────────
     let body;
     try {
       body = await req.json();
@@ -53,7 +57,7 @@ Deno.serve(async (req) => {
 
     const { _delete, ...updateData } = data;
 
-    // ── DELETE path — cascading ────────────────────────────────────────────
+    // ── DELETE path — cascading ────────────────────────────────────────────────
     if (_delete) {
       trace(`DELETE requested for tender id=${tenderId}`);
 
@@ -61,7 +65,7 @@ Deno.serve(async (req) => {
       trace('Fetching TenderInvitation records...');
       let invitations;
       try {
-        invitations = await base44.asServiceRole.entities.TenderInvitation.filter({ tender_id: tenderId });
+        invitations = await sr.entities.TenderInvitation.filter({ tender_id: tenderId });
         trace(`TenderInvitation.filter returned ${invitations.length} record(s)`);
       } catch (invErr) {
         trace(`TenderInvitation.filter threw: ${invErr.message}`);
@@ -69,9 +73,9 @@ Deno.serve(async (req) => {
       }
 
       for (const inv of invitations) {
-        trace(`Deleting TenderInvitation id=${inv.id} email=${inv.invitee_email}`);
+        trace(`Deleting TenderInvitation id=${inv.id}`);
         try {
-          await base44.asServiceRole.entities.TenderInvitation.delete(inv.id);
+          await sr.entities.TenderInvitation.delete(inv.id);
           trace(`TenderInvitation id=${inv.id} deleted OK`);
         } catch (invDelErr) {
           trace(`TenderInvitation id=${inv.id} delete threw: ${invDelErr.message}`);
@@ -81,10 +85,10 @@ Deno.serve(async (req) => {
 
       trace(`All ${invitations.length} TenderInvitation(s) deleted`);
 
-      // 2. Delete the Tender record itself (user-scoped: admin bypasses RLS via role)
+      // 2. Delete the Tender record
       trace(`Deleting Tender id=${tenderId}...`);
       try {
-        await base44.entities.Tender.delete(tenderId);
+        await sr.entities.Tender.delete(tenderId);
         trace(`Tender id=${tenderId} deleted OK`);
       } catch (tDelErr) {
         trace(`Tender.delete threw: ${tDelErr.message}`);
@@ -95,11 +99,11 @@ Deno.serve(async (req) => {
       return Response.json({ success: true, deleted: true, trace: log });
     }
 
-    // ── UPDATE path ────────────────────────────────────────────────────────
+    // ── UPDATE path ────────────────────────────────────────────────────────────
     trace(`UPDATE tender id=${tenderId} fields=${Object.keys(updateData).join(',')}`);
     let updated;
     try {
-      updated = await base44.entities.Tender.update(tenderId, updateData);
+      updated = await sr.entities.Tender.update(tenderId, updateData);
       trace(`Tender.update success id=${tenderId}`);
     } catch (updErr) {
       trace(`Tender.update threw: ${updErr.message}`);

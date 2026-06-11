@@ -1,10 +1,10 @@
 import { createClientFromRequest } from 'npm:@base44/sdk@0.8.31';
 
 /**
- * deleteTender — Phase 3
- * Cascading delete: TenderInvitation → Tender
- * Documents are stored as embedded arrays in Tender — no separate entity to delete.
- * Scoring and submission data are stored in Tender.invitees[].submission — removed with Tender.
+ * deleteTender
+ *
+ * Cascading delete: TenderInvitation → Folder → Tender
+ * All operations via service role to bypass entity RLS.
  */
 Deno.serve(async (req) => {
   const log = [];
@@ -18,8 +18,10 @@ Deno.serve(async (req) => {
     trace('START');
 
     const base44 = createClientFromRequest(req);
+    const sr = base44.asServiceRole;
     trace('SDK initialised');
 
+    // ── Auth ──────────────────────────────────────────────────────────────────
     let user;
     try {
       user = await base44.auth.me();
@@ -44,23 +46,20 @@ Deno.serve(async (req) => {
     if (!tenderId) return fail('tenderId is required', 400);
     trace(`DELETE tender id=${tenderId}`);
 
-    // Step 1 — Skip existence check; proceed directly (service-role .get() blocked by RLS on Tender)
-    trace(`Proceeding with delete for tender id=${tenderId}`);
-
-    // Step 2 — Delete all TenderInvitation records
+    // Step 1 — Delete all TenderInvitation records
     trace('Fetching TenderInvitation records...');
     let invitations;
     try {
-      invitations = await base44.asServiceRole.entities.TenderInvitation.filter({ tender_id: tenderId });
+      invitations = await sr.entities.TenderInvitation.filter({ tender_id: tenderId });
       trace(`TenderInvitation count: ${invitations.length}`);
     } catch (e) {
       return fail(`TenderInvitation fetch failed: ${e.message}`);
     }
 
     for (const inv of invitations) {
-      trace(`Deleting TenderInvitation id=${inv.id} email=${inv.invitee_email}`);
+      trace(`Deleting TenderInvitation id=${inv.id}`);
       try {
-        await base44.asServiceRole.entities.TenderInvitation.delete(inv.id);
+        await sr.entities.TenderInvitation.delete(inv.id);
         trace(`TenderInvitation id=${inv.id} deleted`);
       } catch (e) {
         return fail(`TenderInvitation delete failed id=${inv.id}: ${e.message}`);
@@ -68,33 +67,29 @@ Deno.serve(async (req) => {
     }
     trace(`All ${invitations.length} TenderInvitation(s) deleted`);
 
-    // Step 3 — Delete Folder records linked to this tender
+    // Step 2 — Delete Folder records
     trace('Fetching Folder records...');
-    let folders;
+    let folders = [];
     try {
-      folders = await base44.asServiceRole.entities.Folder.filter({ tender_id: tenderId });
+      folders = await sr.entities.Folder.filter({ tender_id: tenderId });
       trace(`Folder count: ${folders.length}`);
     } catch (e) {
-      // Folder entity may not exist — non-fatal
       trace(`Folder.filter failed (non-fatal): ${e.message}`);
-      folders = [];
     }
 
     for (const folder of folders) {
-      trace(`Deleting Folder id=${folder.id} name=${folder.name}`);
       try {
-        await base44.asServiceRole.entities.Folder.delete(folder.id);
+        await sr.entities.Folder.delete(folder.id);
       } catch (e) {
         trace(`Folder delete failed id=${folder.id} (non-fatal): ${e.message}`);
       }
     }
     trace(`All ${folders.length} Folder(s) deleted`);
 
-    // Step 4 — Delete the Tender record itself
-    // Use user-scoped client (admin role) since asServiceRole is blocked by Tender entity constraints
+    // Step 3 — Delete the Tender record
     trace(`Deleting Tender id=${tenderId}...`);
     try {
-      await base44.entities.Tender.delete(tenderId);
+      await sr.entities.Tender.delete(tenderId);
       trace(`Tender id=${tenderId} deleted`);
     } catch (e) {
       return fail(`Tender delete failed: ${e.message}`);

@@ -3,16 +3,16 @@ import { createClientFromRequest } from 'npm:@base44/sdk@0.8.31';
 /**
  * manageTenderInvitation
  *
- * Centralised backend handler for all TenderInvitation create/delete operations.
- * Replaces all frontend direct-write patterns.
+ * All TenderInvitation create/delete operations executed via service role
+ * to bypass entity RLS. Auth check still validates user identity and role.
  *
  * Payload:
  *   action: 'create' | 'delete'
  *
  *   For 'create':
- *     tenderId    - string
- *     token       - string (UUID)
- *     inviteeName - string
+ *     tenderId     - string
+ *     token        - string (UUID)
+ *     inviteeName  - string
  *     inviteeEmail - string
  *
  *   For 'delete':
@@ -30,8 +30,10 @@ Deno.serve(async (req) => {
     trace('START');
 
     const base44 = createClientFromRequest(req);
+    const sr = base44.asServiceRole;
     trace('SDK initialised');
 
+    // ── Auth ─────────────────────────────────────────────────────────────────
     let user;
     try {
       user = await base44.auth.me();
@@ -64,14 +66,14 @@ Deno.serve(async (req) => {
 
       trace(`CREATE TenderInvitation tender=${tenderId} email=${inviteeEmail}`);
 
-      // Check for duplicate token
+      // Check for duplicate token (service role)
       let existing;
       try {
-        const found = await base44.entities.TenderInvitation.filter({ token });
+        const found = await sr.entities.TenderInvitation.filter({ token });
         existing = found[0] || null;
-        trace(`Duplicate check: found=${!!existing}`);
+        trace(`Duplicate token check: found=${!!existing}`);
       } catch (e) {
-        trace(`Duplicate check failed (continuing): ${e.message}`);
+        trace(`Duplicate token check failed (continuing): ${e.message}`);
         existing = null;
       }
 
@@ -80,10 +82,10 @@ Deno.serve(async (req) => {
         return Response.json({ success: true, invitation: existing, trace: log });
       }
 
-      // Check for duplicate email on same tender
+      // Check for duplicate email on same tender (service role)
       if (inviteeEmail) {
         try {
-          const emailDups = await base44.entities.TenderInvitation.filter({
+          const emailDups = await sr.entities.TenderInvitation.filter({
             tender_id: tenderId,
             invitee_email: inviteeEmail,
           });
@@ -96,9 +98,10 @@ Deno.serve(async (req) => {
         }
       }
 
+      // Create via service role
       let record;
       try {
-        record = await base44.entities.TenderInvitation.create({
+        record = await sr.entities.TenderInvitation.create({
           token,
           tender_id:     tenderId,
           invitee_email: inviteeEmail || '',
@@ -122,7 +125,7 @@ Deno.serve(async (req) => {
       trace(`DELETE TenderInvitation id=${invitationId}`);
 
       try {
-        await base44.entities.TenderInvitation.delete(invitationId);
+        await sr.entities.TenderInvitation.delete(invitationId);
         trace(`TenderInvitation id=${invitationId} deleted`);
       } catch (e) {
         return fail(`TenderInvitation delete failed: ${e.message}`);
