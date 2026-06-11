@@ -65,20 +65,19 @@ export default function TenderDetail() {
     refetchIntervalInBackground: false,
   });
 
-  // Sync form when tender loads
+  // Phase 4: Sync form whenever tender.id or updated_date changes (not just on first load)
   useEffect(() => {
-    if (tender && !form) {
-      // Parse closing_date into date + time parts for the editor
-      let closing_date = tender.closing_date || '';
-      let closing_time = '17:00';
-      if (closing_date && closing_date.includes('T')) {
-        const parts = closing_date.split('T');
-        closing_date = parts[0];
-        closing_time = parts[1]?.slice(0, 5) || '17:00';
-      }
-      setForm({ ...tender, closing_date, closing_time });
+    if (!tender) return;
+    let closing_date = tender.closing_date || '';
+    let closing_time = '17:00';
+    if (closing_date && closing_date.includes('T')) {
+      const parts = closing_date.split('T');
+      closing_date = parts[0];
+      closing_time = parts[1]?.slice(0, 5) || '17:00';
     }
-  }, [tender]);
+    setForm({ ...tender, closing_date, closing_time });
+    setIsDirty(false);
+  }, [tender?.id, tender?.updated_date]);
 
   // Detect unsaved changes
   useEffect(() => {
@@ -106,11 +105,16 @@ export default function TenderDetail() {
     },
   });
 
+  // Phase 3: use dedicated deleteTender function
   const deleteMutation = useMutation({
-    mutationFn: () => base44.functions.invoke('updateTender', { tenderId: id, data: { _delete: true } }),
+    mutationFn: () => base44.functions.invoke('deleteTender', { tenderId: id }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['tenders'] });
       navigate('/tenders');
+    },
+    onError: (err) => {
+      console.error('[deleteTender] failed:', err?.message, err?.response?.data);
+      toast({ title: 'Delete failed', description: err?.message || 'Unknown error', variant: 'destructive', duration: 8000 });
     },
   });
 
@@ -126,8 +130,10 @@ export default function TenderDetail() {
     return `${date}T${time}:00`;
   };
 
+  // Phase 5: expose full error on save
   const handleSaveDetails = async () => {
-    await handleUpdate({
+    try {
+      await handleUpdate({
       title: form.title,
       description: form.description,
       status: form.status,
@@ -146,10 +152,14 @@ export default function TenderDetail() {
       project_manager_contact: form.project_manager_contact,
       project_manager_email: form.project_manager_email,
       additional_contacts: form.additional_contacts || [],
-      notes: form.notes,
-    });
-    setIsDirty(false);
-    toast({ title: 'Tender saved' });
+        notes: form.notes,
+      });
+      setIsDirty(false);
+      toast({ title: 'Tender saved' });
+    } catch (err) {
+      console.error('[handleSaveDetails] failed:', err?.message, err?.response?.data, err?.stack);
+      toast({ title: 'Save failed', description: err?.message || 'Unknown error', variant: 'destructive', duration: 8000 });
+    }
   };
 
   const toggleTrade = (trade) => {
@@ -237,7 +247,7 @@ export default function TenderDetail() {
         <TabsList className="flex-wrap">
           <TabsTrigger value="details">Details</TabsTrigger>
           <TabsTrigger value="documents">Documents {tender.documents?.length > 0 && <span className="ml-1 text-xs opacity-60">{tender.documents.length}</span>}</TabsTrigger>
-          <TabsTrigger value="invitees">Invitees {tender.invitees?.length > 0 && <span className="ml-1 text-xs opacity-60">{tender.invitees.length}</span>}</TabsTrigger>
+          <TabsTrigger value="invitees">Invitees</TabsTrigger>
           <TabsTrigger value="submissions">Submissions</TabsTrigger>
           <TabsTrigger value="outcome">Outcome</TabsTrigger>
         </TabsList>

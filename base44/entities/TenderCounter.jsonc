@@ -4,15 +4,28 @@
   "properties": {
     "current_value": {
       "type": "number",
-      "description": "Current highest tender number issued",
+      "description": "Current counter value. -1 = lock record sentinel.",
       "default": 0
+    },
+    "lock_id": {
+      "type": "string",
+      "description": "UUID of the lock holder. Only set on lock records (current_value = -1)."
+    },
+    "locked_at": {
+      "type": "string",
+      "description": "ISO datetime when the lock was acquired."
     }
   },
   "required": [],
   "rls": {
     "create": {
       "user_condition": {
-        "role": "admin"
+        "role": {
+          "$in": [
+            "admin",
+            "pricing"
+          ]
+        }
       }
     },
     "read": {
@@ -37,7 +50,12 @@
     },
     "delete": {
       "user_condition": {
-        "role": "admin"
+        "role": {
+          "$in": [
+            "admin",
+            "pricing"
+          ]
+        }
       }
     }
   }

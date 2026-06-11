@@ -1,4 +1,9 @@
+/**
+ * TenderHealthPanel — Phase 6
+ * Health checks use TenderInvitation as source of truth (not Tender.invitees[]).
+ */
 import React, { useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { base44 } from '@/api/base44Client';
 import { Button } from '@/components/ui/button';
 import { CheckCircle2, XCircle, AlertTriangle, FileText, FolderOpen, Users, Send, ShieldCheck, Loader2 } from 'lucide-react';
@@ -6,67 +11,77 @@ import { useToast } from '@/components/ui/use-toast';
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-function computeHealth(tender) {
-  const docs     = tender.documents || [];
-  const invitees = tender.invitees  || [];
+function computeHealth(tender, invitations) {
+  const docs   = tender.documents || [];
+  const issues = [];
 
-  // Document checks — O(1) using Map for duplicate detection
+  // ── Document checks ──────────────────────────────────────────────────────
   const docsWithoutUrl = docs.filter(d => !d.file_url);
-  const docKeyCounts   = new Map();
+  const docKeyCounts = new Map();
   for (const d of docs) {
     const k = `${d.folder_path || ''}|${d.name}`;
     docKeyCounts.set(k, (docKeyCounts.get(k) || 0) + 1);
   }
-  const dupDocKeySet  = new Set([...docKeyCounts.entries()].filter(([, c]) => c > 1).map(([k]) => k));
+  const dupDocCount   = [...docKeyCounts.values()].filter(c => c > 1).length;
   const uniqueFolders = new Set(docs.map(d => d.folder_path || '').filter(Boolean));
 
-  // Invitee checks — O(1) using Set
-  const invalidEmails = invitees.filter(i => i.email && !EMAIL_RE.test(i.email));
-  const missingEmails = invitees.filter(i => !i.email);
-  const seenEmails    = new Set();
-  const dupEmails     = invitees.filter(i => {
-    if (!i.email) return false;
-    const k = i.email.toLowerCase();
-    if (seenEmails.has(k)) return true;
-    seenEmails.add(k);
-    return false;
-  });
-  const missingTokens = invitees.filter(i => !i.token);
-
-  const issues = [];
-
-  // Errors (block issuing)
   if (docs.length === 0)
     issues.push({ severity: 'error', msg: 'No documents uploaded' });
   if (docsWithoutUrl.length > 0)
     issues.push({ severity: 'error', msg: `${docsWithoutUrl.length} document${docsWithoutUrl.length !== 1 ? 's' : ''} missing file URL` });
+  if (dupDocCount > 0)
+    issues.push({ severity: 'warning', msg: `${dupDocCount} duplicate document name${dupDocCount !== 1 ? 's' : ''} detected` });
+
+  // ── Invitee checks (from TenderInvitation — source of truth) ─────────────
+  const invalidEmails = invitations.filter(i => i.invitee_email && !EMAIL_RE.test(i.invitee_email));
+  const missingEmails = invitations.filter(i => !i.invitee_email);
+
+  const seenEmails = new Set();
+  const dupEmails  = invitations.filter(i => {
+    if (!i.invitee_email) return false;
+    const k = i.invitee_email.toLowerCase();
+    if (seenEmails.has(k)) return true;
+    seenEmails.add(k);
+    return false;
+  });
+
+  const missingTokens   = invitations.filter(i => !i.token);
+  const missingTenderId = invitations.filter(i => !i.tender_id);
+
   if (invalidEmails.length > 0)
     issues.push({ severity: 'error', msg: `${invalidEmails.length} invalid email address${invalidEmails.length !== 1 ? 'es' : ''}` });
   if (dupEmails.length > 0)
     issues.push({ severity: 'error', msg: `${dupEmails.length} duplicate email${dupEmails.length !== 1 ? 's' : ''} in invitee list` });
   if (missingTokens.length > 0)
-    issues.push({ severity: 'error', msg: `${missingTokens.length} invitee${missingTokens.length !== 1 ? 's' : ''} missing invitation token` });
+    issues.push({ severity: 'error', msg: `${missingTokens.length} invitation${missingTokens.length !== 1 ? 's' : ''} missing token` });
+  if (missingTenderId.length > 0)
+    issues.push({ severity: 'error', msg: `${missingTenderId.length} invitation${missingTenderId.length !== 1 ? 's' : ''} missing tender_id` });
 
-  // Warnings (allow issuing, but flag)
-  if (invitees.length === 0)
+  if (invitations.length === 0)
     issues.push({ severity: 'warning', msg: 'No invitees added yet' });
   if (missingEmails.length > 0)
     issues.push({ severity: 'warning', msg: `${missingEmails.length} invitee${missingEmails.length !== 1 ? 's' : ''} without email — will not receive invitation` });
-  if (dupDocKeySet.size > 0)
-    issues.push({ severity: 'warning', msg: `${dupDocKeySet.size} duplicate document name${dupDocKeySet.size !== 1 ? 's' : ''} detected` });
+
+  // ── Status mismatch checks ────────────────────────────────────────────────
+  if (tender.status === 'Issued' && invitations.length === 0)
+    issues.push({ severity: 'warning', msg: 'Tender is Issued but has 0 invitations' });
+  if (tender.status === 'Closed' && invitations.filter(i => i.status === 'Submitted').length === 0)
+    issues.push({ severity: 'warning', msg: 'Tender is Closed but no submissions received' });
+
+  // ── Orphaned submission check ─────────────────────────────────────────────
+  const legacySubmissions = (tender.invitees || []).filter(i => i.submission?.submitted_at);
+  const submittedInvitations = invitations.filter(i => i.status === 'Submitted');
+  if (legacySubmissions.length > submittedInvitations.length) {
+    issues.push({ severity: 'warning', msg: `${legacySubmissions.length - submittedInvitations.length} submission(s) may be orphaned (legacy data)` });
+  }
 
   const errorCount = issues.filter(i => i.severity === 'error').length;
-  const isReady    = errorCount === 0 && docs.length > 0 && invitees.length > 0;
+  const isReady    = errorCount === 0 && docs.length > 0 && invitations.length > 0;
 
   return {
-    docs:          docs.length,
-    folders:       uniqueFolders.size,
-    invitees:      invitees.length,
-    docsWithoutUrl: docsWithoutUrl.length,
-    duplicateDocs: dupDocKeySet.size,
-    invalidEmails: invalidEmails.length,
-    missingEmails: missingEmails.length,
-    dupEmails:     dupEmails.length,
+    docs:    docs.length,
+    folders: uniqueFolders.size,
+    invitees: invitations.length,
     issues,
     isReady,
     errorCount,
@@ -78,7 +93,14 @@ export default function TenderHealthPanel({ tender, user }) {
   const [testSending, setTestSending] = useState(false);
   const [lastValidated, setLastValidated] = useState(null);
 
-  const health = computeHealth(tender);
+  // Phase 6: read from TenderInvitation as source of truth
+  const { data: invitations = [] } = useQuery({
+    queryKey: ['tenderInvitations', tender.id],
+    queryFn: () => base44.entities.TenderInvitation.filter({ tender_id: tender.id }),
+    enabled: !!tender.id,
+  });
+
+  const health = computeHealth(tender, invitations);
 
   const handleValidate = () => {
     setLastValidated(new Date());
@@ -125,12 +147,13 @@ export default function TenderHealthPanel({ tender, user }) {
       } else {
         toast({
           title: 'Test email failed',
-          description: result.data?.error || 'Check RESEND_API_KEY and email branding settings',
+          description: result.data?.error || result.data?.errors?.[0] || 'Check RESEND_API_KEY and email branding settings',
           variant: 'destructive',
           duration: 6000,
         });
       }
     } catch (err) {
+      console.error('[handleTestEmail] failed:', err?.message, err?.stack);
       toast({ title: 'Test email failed', description: err.message, variant: 'destructive', duration: 6000 });
     } finally {
       setTestSending(false);
@@ -147,7 +170,6 @@ export default function TenderHealthPanel({ tender, user }) {
 
   return (
     <div className="border rounded-lg overflow-hidden">
-      {/* Header */}
       <div className="flex items-center justify-between px-4 py-3 bg-muted/40 border-b">
         <div className={`flex items-center gap-2 px-2.5 py-1 rounded-full text-xs font-semibold border ${statusColour}`}>
           <StatusIcon className="w-3.5 h-3.5" />
@@ -161,20 +183,14 @@ export default function TenderHealthPanel({ tender, user }) {
           <Button variant="outline" size="sm" className="gap-1.5 h-7 text-xs" onClick={handleValidate}>
             <ShieldCheck className="w-3 h-3" /> Validate Package
           </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            className="gap-1.5 h-7 text-xs"
-            onClick={handleTestEmail}
-            disabled={testSending || !user?.email}
-          >
+          <Button variant="outline" size="sm" className="gap-1.5 h-7 text-xs"
+            onClick={handleTestEmail} disabled={testSending || !user?.email}>
             {testSending ? <Loader2 className="w-3 h-3 animate-spin" /> : <Send className="w-3 h-3" />}
             {testSending ? 'Sending…' : 'Send Test Email'}
           </Button>
         </div>
       </div>
 
-      {/* Stats */}
       <div className="grid grid-cols-3 divide-x border-b bg-card">
         {[
           { icon: FileText,   label: 'Documents', value: health.docs },
@@ -191,18 +207,12 @@ export default function TenderHealthPanel({ tender, user }) {
         ))}
       </div>
 
-      {/* Issues list */}
       {health.issues.length > 0 ? (
         <div className="divide-y">
           {health.issues.map((issue, i) => (
-            <div
-              key={i}
-              className={`flex items-center gap-2 px-4 py-2 text-xs ${
-                issue.severity === 'error'
-                  ? 'bg-red-50 text-red-700'
-                  : 'bg-amber-50 text-amber-700'
-              }`}
-            >
+            <div key={i} className={`flex items-center gap-2 px-4 py-2 text-xs ${
+              issue.severity === 'error' ? 'bg-red-50 text-red-700' : 'bg-amber-50 text-amber-700'
+            }`}>
               {issue.severity === 'error'
                 ? <XCircle className="w-3.5 h-3.5 flex-shrink-0" />
                 : <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0" />}

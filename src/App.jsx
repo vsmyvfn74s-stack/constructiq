@@ -25,6 +25,7 @@ import Settings from '@/pages/Settings.jsx';
 import Tenders from '@/pages/Tenders';
 import TenderDetail from '@/pages/TenderDetail';
 import TenderSubmit from '@/pages/TenderSubmit';
+import TenderTestSuite from '@/pages/TenderTestSuite';
 
 const TendersRoute = ({ children }) => {
   const { user } = useAuth();
@@ -85,6 +86,7 @@ const AuthenticatedApp = () => {
           <Route path="/tenders" element={<TendersRoute><Tenders /></TendersRoute>} />
           <Route path="/tenders/:id" element={<TendersRoute><TenderDetail /></TendersRoute>} />
           <Route path="/settings" element={<Settings />} />
+          <Route path="/tender-tests" element={<TenderTestSuite />} />
         </Route>
       </Route>
 
