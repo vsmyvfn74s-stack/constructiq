@@ -85,10 +85,10 @@ Deno.serve(async (req) => {
 
       trace(`All ${invitations.length} TenderInvitation(s) deleted`);
 
-      // 2. Delete the Tender record
+      // 2. Delete the Tender record (user-scoped: role RLS allows admin/pricing to delete)
       trace(`Deleting Tender id=${tenderId}...`);
       try {
-        await sr.entities.Tender.delete(tenderId);
+        await base44.entities.Tender.delete(tenderId);
         trace(`Tender id=${tenderId} deleted OK`);
       } catch (tDelErr) {
         trace(`Tender.delete threw: ${tDelErr.message}`);
@@ -100,10 +100,12 @@ Deno.serve(async (req) => {
     }
 
     // ── UPDATE path ────────────────────────────────────────────────────────────
+    // Use user-scoped client: role-based RLS (admin/pricing) allows update.
+    // asServiceRole is used only for child entities (TenderInvitation, Folder).
     trace(`UPDATE tender id=${tenderId} fields=${Object.keys(updateData).join(',')}`);
     let updated;
     try {
-      updated = await sr.entities.Tender.update(tenderId, updateData);
+      updated = await base44.entities.Tender.update(tenderId, updateData);
       trace(`Tender.update success id=${tenderId}`);
     } catch (updErr) {
       trace(`Tender.update threw: ${updErr.message}`);

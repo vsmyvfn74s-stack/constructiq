@@ -86,10 +86,10 @@ Deno.serve(async (req) => {
     }
     trace(`All ${folders.length} Folder(s) deleted`);
 
-    // Step 3 — Delete the Tender record
+    // Step 3 — Delete the Tender record (user-scoped: role RLS allows admin/pricing to delete)
     trace(`Deleting Tender id=${tenderId}...`);
     try {
-      await sr.entities.Tender.delete(tenderId);
+      await base44.entities.Tender.delete(tenderId);
       trace(`Tender id=${tenderId} deleted`);
     } catch (e) {
       return fail(`Tender delete failed: ${e.message}`);
