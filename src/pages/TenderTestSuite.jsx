@@ -8,7 +8,7 @@ import { Navigate } from 'react-router-dom';
 import { base44 } from '@/api/base44Client';
 import { useAuth } from '@/lib/AuthContext';
 import { Button } from '@/components/ui/button';
-import { CheckCircle2, XCircle, Loader2, PlayCircle, Trash2, AlertTriangle } from 'lucide-react';
+import { CheckCircle2, XCircle, Loader2, PlayCircle, Trash2, AlertTriangle, FlaskConical } from 'lucide-react';
 
 const PASS  = 'pass';
 const FAIL  = 'fail';
@@ -261,39 +261,223 @@ export default function TenderTestSuite() {
   const total   = results.filter(r => r.status !== RUNNING && r.label !== 'CLEANUP: deleting test tenders').length;
 
   return (
-    <div className="max-w-3xl mx-auto p-6 space-y-6">
+    <div className="max-w-3xl mx-auto p-6 space-y-10">
       <div>
         <h1 className="text-2xl font-bold">Tender Regression Test Suite</h1>
         <p className="text-sm text-muted-foreground mt-1">Phase 7 — automated tests for the Tender subsystem. Admin only.</p>
       </div>
 
-      <div className="flex items-center gap-4">
-        <Button onClick={runAll} disabled={running} className="gap-2">
-          {running ? <Loader2 className="w-4 h-4 animate-spin" /> : <PlayCircle className="w-4 h-4" />}
-          {running ? 'Running…' : 'Run All Tests'}
-        </Button>
-        {results.length > 0 && !running && (
-          <div className="flex items-center gap-3 text-sm">
-            <span className="text-green-600 font-semibold">{passed} passed</span>
-            {failed > 0 && <span className="text-red-600 font-semibold">{failed} failed</span>}
-            <span className="text-muted-foreground">/ {total} tests</span>
+      {/* ── Regression suite ─────────────────────────────────────────── */}
+      <div className="space-y-4">
+        <div className="flex items-center gap-4">
+          <Button onClick={runAll} disabled={running} className="gap-2">
+            {running ? <Loader2 className="w-4 h-4 animate-spin" /> : <PlayCircle className="w-4 h-4" />}
+            {running ? 'Running…' : 'Run All Tests'}
+          </Button>
+          {results.length > 0 && !running && (
+            <div className="flex items-center gap-3 text-sm">
+              <span className="text-green-600 font-semibold">{passed} passed</span>
+              {failed > 0 && <span className="text-red-600 font-semibold">{failed} failed</span>}
+              <span className="text-muted-foreground">/ {total} tests</span>
+            </div>
+          )}
+        </div>
+
+        {results.length > 0 && (
+          <div className="space-y-2">
+            {results.map((r, i) => (
+              <Result key={i} status={r.status} label={r.label} detail={r.detail} />
+            ))}
           </div>
+        )}
+
+        {!running && results.length === 0 && (
+          <p className="text-sm text-muted-foreground text-center py-12 border rounded-lg">
+            Press "Run All Tests" to execute the regression suite.
+          </p>
         )}
       </div>
 
-      {results.length > 0 && (
-        <div className="space-y-2">
-          {results.map((r, i) => (
-            <Result key={i} status={r.status} label={r.label} detail={r.detail} />
-          ))}
+      {/* ── Issue Tender Diagnostic ───────────────────────────────────── */}
+      <IssueTenderDiagnostic />
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// IssueTenderDiagnostic
+// Captures full before/after state of TenderInvitee + TenderInvitation records
+// for a given tender, executes sendTenderInvitations, and renders raw output.
+// ─────────────────────────────────────────────────────────────────────────────
+function IssueTenderDiagnostic() {
+  const [tenderId, setTenderId] = useState('');
+  const [running, setRunning]   = useState(false);
+  const [report, setReport]     = useState(null);
+
+  const run = async () => {
+    if (!tenderId.trim()) return;
+    setRunning(true);
+    setReport(null);
+
+    const out = {
+      inputTenderId: tenderId.trim(),
+      tender: null,
+      before: { invitees: [], invitations: [] },
+      after:  { invitees: [], invitations: [] },
+      sendResponse: null,
+      error: null,
+    };
+
+    try {
+      // Resolve tender — accept either DB id or tender_number (e.g. TDR-008)
+      let tender = null;
+      const looksLikeId = tenderId.trim().length > 12 && !tenderId.trim().startsWith('TDR-');
+      if (looksLikeId) {
+        const list = await base44.entities.Tender.filter({ id: tenderId.trim() });
+        tender = list[0] || null;
+      } else {
+        const list = await base44.entities.Tender.list('-created_date', 200);
+        tender = list.find(t => t.tender_number === tenderId.trim() || t.id === tenderId.trim()) || null;
+      }
+
+      if (!tender) {
+        out.error = `No tender found for "${tenderId.trim()}"`;
+        setReport(out);
+        setRunning(false);
+        return;
+      }
+      out.tender = { id: tender.id, tender_number: tender.tender_number, title: tender.title, status: tender.status };
+
+      // ── BEFORE ──────────────────────────────────────────────────────────────
+      const [beforeInvitees, beforeInvitations] = await Promise.all([
+        base44.entities.TenderInvitee.filter({ tender_id: tender.id }),
+        base44.entities.TenderInvitation.filter({ tender_id: tender.id }),
+      ]);
+      out.before.invitees    = beforeInvitees.map(i => ({ id: i.id, name: i.full_name, email: i.email, status: i.status }));
+      out.before.invitations = beforeInvitations.map(i => ({ id: i.id, invitee_id: i.invitee_id, email: i.invitee_email, token: i.token, status: i.status }));
+
+      // ── CALL sendTenderInvitations ───────────────────────────────────────────
+      // First update status to Issued (mirrors what InviteeManager does)
+      await base44.functions.invoke('updateTender', {
+        tenderId: tender.id,
+        updates: {
+          status:     'Issued',
+          issue_date: tender.issue_date || new Date().toISOString().split('T')[0],
+        },
+      });
+
+      const sendRes = await base44.functions.invoke('sendTenderInvitations', {
+        tenderId:   tender.id,
+        tenderInfo: {
+          title:                tender.title,
+          tender_number:        tender.tender_number        || '',
+          location:             tender.location             || '',
+          closing_date:         tender.closing_date         || '',
+          description:          tender.description          || '',
+          trade_packages:       tender.trade_packages       || [],
+          client_name:          tender.client_name          || '',
+          architect_name:       tender.architect_name       || '',
+          project_manager_name: tender.project_manager_name || '',
+        },
+        appUrl: window.location.origin,
+      });
+      out.sendResponse = sendRes.data;
+
+      // ── AFTER ───────────────────────────────────────────────────────────────
+      const [afterInvitees, afterInvitations] = await Promise.all([
+        base44.entities.TenderInvitee.filter({ tender_id: tender.id }),
+        base44.entities.TenderInvitation.filter({ tender_id: tender.id }),
+      ]);
+      out.after.invitees    = afterInvitees.map(i => ({ id: i.id, name: i.full_name, email: i.email, status: i.status }));
+      out.after.invitations = afterInvitations.map(i => ({ id: i.id, invitee_id: i.invitee_id, email: i.invitee_email, token: i.token, status: i.status }));
+
+    } catch (e) {
+      out.error = e?.response?.data ? JSON.stringify(e.response.data) : e.message;
+    }
+
+    setReport(out);
+    setRunning(false);
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center gap-2">
+        <FlaskConical className="w-5 h-5 text-purple-600" />
+        <h2 className="text-lg font-bold">Issue Tender Diagnostic</h2>
+      </div>
+      <p className="text-sm text-muted-foreground">
+        Captures full before/after state, calls <code className="text-xs bg-muted px-1 py-0.5 rounded">sendTenderInvitations</code>, and returns raw payloads. Enter a Tender DB id or tender number (e.g. <code className="text-xs bg-muted px-1 py-0.5 rounded">TDR-008</code>).
+      </p>
+
+      <div className="flex gap-2">
+        <input
+          className="flex h-9 w-full max-w-xs rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+          placeholder="TDR-008 or DB id…"
+          value={tenderId}
+          onChange={e => setTenderId(e.target.value)}
+          onKeyDown={e => e.key === 'Enter' && !running && run()}
+        />
+        <Button onClick={run} disabled={running || !tenderId.trim()} className="gap-2">
+          {running ? <Loader2 className="w-4 h-4 animate-spin" /> : <PlayCircle className="w-4 h-4" />}
+          {running ? 'Running…' : 'Run Diagnostic'}
+        </Button>
+      </div>
+
+      {report && (
+        <div className="space-y-5 text-sm font-mono">
+          {/* Resolved tender */}
+          <Section title="Resolved Tender">
+            <Pre>{JSON.stringify(report.tender, null, 2)}</Pre>
+          </Section>
+
+          {report.error && (
+            <Section title="ERROR" colour="red">
+              <Pre colour="red">{report.error}</Pre>
+            </Section>
+          )}
+
+          {/* BEFORE */}
+          <Section title={`BEFORE — TenderInvitee (${report.before.invitees.length} record${report.before.invitees.length !== 1 ? 's' : ''})`}>
+            <Pre>{JSON.stringify(report.before.invitees, null, 2)}</Pre>
+          </Section>
+
+          <Section title={`BEFORE — TenderInvitation (${report.before.invitations.length} record${report.before.invitations.length !== 1 ? 's' : ''})`}>
+            <Pre>{JSON.stringify(report.before.invitations, null, 2)}</Pre>
+          </Section>
+
+          {/* sendTenderInvitations raw response */}
+          <Section title="sendTenderInvitations() — Raw Response" colour="blue">
+            <Pre colour="blue">{JSON.stringify(report.sendResponse, null, 2)}</Pre>
+          </Section>
+
+          {/* AFTER */}
+          <Section title={`AFTER — TenderInvitee (${report.after.invitees.length} record${report.after.invitees.length !== 1 ? 's' : ''})`} colour="green">
+            <Pre colour="green">{JSON.stringify(report.after.invitees, null, 2)}</Pre>
+          </Section>
+
+          <Section title={`AFTER — TenderInvitation (${report.after.invitations.length} record${report.after.invitations.length !== 1 ? 's' : ''})`} colour="green">
+            <Pre colour="green">{JSON.stringify(report.after.invitations, null, 2)}</Pre>
+          </Section>
         </div>
       )}
-
-      {!running && results.length === 0 && (
-        <p className="text-sm text-muted-foreground text-center py-12 border rounded-lg">
-          Press "Run All Tests" to execute the regression suite.
-        </p>
-      )}
     </div>
+  );
+}
+
+function Section({ title, colour = 'gray', children }) {
+  const borders = { gray: 'border-border', blue: 'border-blue-300', green: 'border-green-300', red: 'border-red-300' };
+  const headers = { gray: 'bg-muted text-foreground', blue: 'bg-blue-50 text-blue-900', green: 'bg-green-50 text-green-900', red: 'bg-red-50 text-red-900' };
+  return (
+    <div className={`border rounded-lg overflow-hidden ${borders[colour]}`}>
+      <div className={`px-3 py-2 text-xs font-semibold uppercase tracking-wide ${headers[colour]}`}>{title}</div>
+      <div className="p-0">{children}</div>
+    </div>
+  );
+}
+
+function Pre({ colour = 'gray', children }) {
+  const bgs = { gray: 'bg-background', blue: 'bg-blue-50/40', green: 'bg-green-50/40', red: 'bg-red-50/40' };
+  return (
+    <pre className={`text-xs p-3 overflow-x-auto whitespace-pre-wrap break-all leading-relaxed ${bgs[colour]}`}>{children}</pre>
   );
 }
