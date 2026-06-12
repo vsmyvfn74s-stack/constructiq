@@ -38,38 +38,40 @@ Deno.serve(async (req) => {
     if (!tenderId) return fail('tenderId is required', 400);
     trace(`DELETE tender=${tenderId}`);
 
+    const fetchAll = async (entityName, filter) => {
+      const records = await sr.entities[entityName].filter(filter);
+      trace(`${entityName} count: ${records.length}`);
+      return records;
+    };
+
     const deleteAll = async (entityName, records) => {
       for (const r of records) {
         try {
           await sr.entities[entityName].delete(r.id);
         } catch (e) {
-          trace(`${entityName} delete failed id=${r.id} (non-fatal): ${e.message}`);
+          trace(`${entityName} delete FAILED id=${r.id}: ${e.message}`);
         }
       }
-      trace(`${records.length} ${entityName}(s) deleted`);
+      trace(`${entityName} — ${records.length} deleted`);
     };
 
     // Step 1 — TenderSubmission
-    const submissions = await sr.entities.TenderSubmission.filter({ tender_id: tenderId }).catch(() => []);
-    trace(`TenderSubmission count: ${submissions.length}`);
+    const submissions = await fetchAll('TenderSubmission', { tender_id: tenderId });
     await deleteAll('TenderSubmission', submissions);
 
     // Step 2 — TenderInvitation
-    const invitations = await sr.entities.TenderInvitation.filter({ tender_id: tenderId }).catch(() => []);
-    trace(`TenderInvitation count: ${invitations.length}`);
+    const invitations = await fetchAll('TenderInvitation', { tender_id: tenderId });
     await deleteAll('TenderInvitation', invitations);
 
     // Step 3 — TenderInvitee
-    const invitees = await sr.entities.TenderInvitee.filter({ tender_id: tenderId }).catch(() => []);
-    trace(`TenderInvitee count: ${invitees.length}`);
+    const invitees = await fetchAll('TenderInvitee', { tender_id: tenderId });
     await deleteAll('TenderInvitee', invitees);
 
     // Step 4 — Folder
-    const folders = await sr.entities.Folder.filter({ tender_id: tenderId }).catch(() => []);
-    trace(`Folder count: ${folders.length}`);
+    const folders = await fetchAll('Folder', { tender_id: tenderId });
     await deleteAll('Folder', folders);
 
-    // Step 5 — Tender
+    // Step 5 — Tender (user-scoped to bypass RLS quirk on delete)
     trace(`Deleting Tender id=${tenderId}...`);
     await base44.entities.Tender.delete(tenderId);
     trace('Tender deleted');
