@@ -139,15 +139,23 @@
   ],
   "rls": {
     "create": {
-      "user_condition": {
-        "role": {
-          "$in": [
-            "admin",
-            "internal",
-            "pricing"
-          ]
+      "$or": [
+        {
+          "user_condition": {
+            "role": "admin"
+          }
+        },
+        {
+          "user_condition": {
+            "role": "internal"
+          }
+        },
+        {
+          "user_condition": {
+            "role": "pricing"
+          }
         }
-      }
+      ]
     },
     "read": {
       "$or": [
@@ -162,13 +170,17 @@
         },
         {
           "user_condition": {
-            "role": {
-              "$in": [
-                "admin",
-                "internal",
-                "pricing"
-              ]
-            }
+            "role": "admin"
+          }
+        },
+        {
+          "user_condition": {
+            "role": "internal"
+          }
+        },
+        {
+          "user_condition": {
+            "role": "pricing"
           }
         }
       ]
@@ -186,25 +198,29 @@
         },
         {
           "user_condition": {
-            "role": {
-              "$in": [
-                "admin",
-                "internal"
-              ]
-            }
+            "role": "admin"
+          }
+        },
+        {
+          "user_condition": {
+            "role": "internal"
           }
         }
       ]
     },
     "delete": {
-      "user_condition": {
-        "role": {
-          "$in": [
-            "admin",
-            "internal"
-          ]
+      "$or": [
+        {
+          "user_condition": {
+            "role": "admin"
+          }
+        },
+        {
+          "user_condition": {
+            "role": "internal"
+          }
         }
-      }
+      ]
     }
   }
 }
