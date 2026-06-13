@@ -21,6 +21,7 @@ import ConvertToProjectModal from '@/components/tenders/ConvertToProjectModal';
 import TenderHealthPanel from '@/components/tenders/TenderHealthPanel.jsx';
 import TenderDebugPanel from '@/components/tenders/TenderDebugPanel';
 import TenderInvitationStats from '@/components/tenders/TenderInvitationStats';
+import TenderActivityFeed from '@/components/tenders/TenderActivityFeed';
 
 const TRADES = [
   'Electrical', 'Plumbing', 'HVAC', 'Carpentry', 'Masonry',
@@ -278,6 +279,7 @@ export default function TenderDetail() {
           <TabsTrigger value="invitees">Invitees</TabsTrigger>
           <TabsTrigger value="submissions">Submissions</TabsTrigger>
           <TabsTrigger value="outcome">Outcome</TabsTrigger>
+          <TabsTrigger value="activity">Activity</TabsTrigger>
         </TabsList>
 
         {/* Tab 1 — Details */}
@@ -577,6 +579,11 @@ export default function TenderDetail() {
         {/* Tab 5 — Outcome */}
         <TabsContent value="outcome">
           <OutcomePanel tender={tender} onUpdate={handleUpdate} onConvert={() => setShowConvert(true)} canManage={effectiveCanManage} />
+        </TabsContent>
+
+        {/* Tab 6 — Activity */}
+        <TabsContent value="activity">
+          <TenderActivityFeed tenderId={tender.id} />
         </TabsContent>
       </Tabs>
 

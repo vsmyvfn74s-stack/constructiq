@@ -153,6 +153,18 @@ Deno.serve(async (req) => {
       return fail(`Tender create failed: ${e.message}`);
     }
 
+    // Log activity (non-fatal)
+    try {
+      await sr.entities.TenderActivity.create({
+        tender_id:   created.id,
+        event_type:  'tender_created',
+        actor_name:  user.full_name || user.email,
+        actor_email: user.email,
+        description: `Tender ${created.tender_number} created by ${user.full_name || user.email}`,
+        occurred_at: new Date().toISOString(),
+      });
+    } catch (e) { trace(`Activity log failed (non-fatal): ${e.message}`); }
+
     trace('COMPLETE');
     return Response.json({ tender: created, trace: log });
 

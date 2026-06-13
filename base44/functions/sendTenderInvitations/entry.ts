@@ -202,6 +202,22 @@ Deno.serve(async (req) => {
       }
     }
 
+    // Log activity (non-fatal)
+    if (sent > 0) {
+      try {
+        const sr2 = base44.asServiceRole;
+        await sr2.entities.TenderActivity.create({
+          tender_id:   tenderId,
+          event_type:  'invitation_sent',
+          actor_name:  user.full_name || user.email,
+          actor_email: user.email,
+          description: `${sent} invitation${sent !== 1 ? 's' : ''} sent to subcontractors`,
+          metadata:    { count: sent },
+          occurred_at: new Date().toISOString(),
+        });
+      } catch (e) { console.warn('[sendTenderInvitations] Activity log failed (non-fatal):', e.message); }
+    }
+
     console.log(`[sendTenderInvitations] COMPLETE sent=${sent} failed=${failed}`);
     return Response.json({ sent, failed, errors });
 

@@ -155,6 +155,19 @@ Deno.serve(async (req) => {
       }
     }
 
+    // Log activity (non-fatal)
+    try {
+      await sr.entities.TenderActivity.create({
+        tender_id:   submission.tender_id,
+        event_type:  'submission_received',
+        actor_name:  submission.invitee_name || submission.full_name || 'Subcontractor',
+        actor_email: submission.invitee_email || '',
+        description: `Submission received from ${submission.business_name || submission.invitee_name || 'Unknown'} (${submission.trade || 'unspecified trade'})`,
+        metadata:    { invitee_name: submission.invitee_name, invitee_email: submission.invitee_email },
+        occurred_at: new Date().toISOString(),
+      });
+    } catch (e) { trace(`Activity log failed (non-fatal): ${e.message}`); }
+
     return Response.json({ success: true, sent, total: recipients.length, log });
 
   } catch (error) {
