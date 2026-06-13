@@ -51,8 +51,6 @@ export default function TenderDetail() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const canManage = canManagePerm(user, 'tenders');
-  const isConverted = tender?.status === 'Converted';
-  const effectiveCanManage = canManage && !isConverted;
   const [showConvert, setShowConvert] = useState(false);
   const [customTrade, setCustomTrade] = useState('');
   const [form, setForm] = useState(null);
@@ -183,6 +181,9 @@ export default function TenderDetail() {
   };
 
   if (!canAccess(user, 'tenders')) return <Navigate to="/" replace />;
+
+  const isConverted = tender?.status === 'Converted';
+  const effectiveCanManage = canManage && !isConverted;
 
   if (isLoading || !tender || !form) {
     return (
