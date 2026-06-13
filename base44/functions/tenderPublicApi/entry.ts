@@ -136,6 +136,24 @@ Deno.serve(async (req) => {
 
       const submittedAt = new Date().toISOString();
 
+      // Fetch invitee snapshot for historical integrity
+      let inviteeSnapshot = {};
+      if (invitation.invitee_id) {
+        try {
+          const invitees = await sr.entities.TenderInvitee.filter({ id: invitation.invitee_id });
+          const inv = invitees[0];
+          if (inv) {
+            inviteeSnapshot = {
+              full_name:     inv.full_name     || invitation.invitee_name  || '',
+              business_name: inv.business_name || '',
+              trade:         inv.trade         || '',
+            };
+          }
+        } catch (e) {
+          console.warn(`[tenderPublicApi] invitee snapshot fetch failed: ${e.message}`);
+        }
+      }
+
       // Upsert TenderSubmission
       let submissionRecord;
       try {
@@ -147,6 +165,8 @@ Deno.serve(async (req) => {
             uploaded_file_url:  submission.uploaded_file_url  || '',
             uploaded_file_name: submission.uploaded_file_name || '',
             submitted_at:       submittedAt,
+            // re-snapshot in case invitee details were corrected before resubmission
+            ...inviteeSnapshot,
           });
           console.log(`[tenderPublicApi] TenderSubmission UPDATED id=${existing[0].id}`);
         } else {
@@ -156,12 +176,13 @@ Deno.serve(async (req) => {
             invitation_id:      invitation.id,
             invitee_name:       invitation.invitee_name  || '',
             invitee_email:      invitation.invitee_email || '',
-            business_name:      '',
             lump_sum_price:     submission.lump_sum_price,
             notes:              submission.notes              || '',
             uploaded_file_url:  submission.uploaded_file_url  || '',
             uploaded_file_name: submission.uploaded_file_name || '',
             submitted_at:       submittedAt,
+            // snapshot invitee details for historical integrity
+            ...inviteeSnapshot,
           });
           console.log(`[tenderPublicApi] TenderSubmission CREATED id=${submissionRecord.id}`);
         }

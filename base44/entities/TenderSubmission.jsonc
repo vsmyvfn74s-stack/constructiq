@@ -17,11 +17,20 @@
     "invitee_name": {
       "type": "string"
     },
+    "full_name": {
+      "type": "string",
+      "description": "Snapshot of invitee full name at time of submission"
+    },
     "invitee_email": {
       "type": "string"
     },
     "business_name": {
-      "type": "string"
+      "type": "string",
+      "description": "Snapshot of invitee business name at time of submission"
+    },
+    "trade": {
+      "type": "string",
+      "description": "Snapshot of invitee trade at time of submission"
     },
     "lump_sum_price": {
       "type": "number"
