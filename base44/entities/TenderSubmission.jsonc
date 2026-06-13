@@ -91,7 +91,37 @@
       "type": "string"
     },
     "outcome_notified_at": {
-      "type": "string"
+      "type": "string",
+      "description": "ISO datetime when outcome notification was successfully sent"
+    },
+    "outcome_notification_status": {
+      "type": "string",
+      "enum": [
+        "",
+        "Pending",
+        "Sent",
+        "Failed"
+      ],
+      "default": "",
+      "description": "Status of the outcome notification send attempt"
+    },
+    "outcome_notification_type": {
+      "type": "string",
+      "enum": [
+        "",
+        "Awarded",
+        "Unsuccessful"
+      ],
+      "default": "",
+      "description": "Type of notification sent"
+    },
+    "outcome_notification_message_id": {
+      "type": "string",
+      "description": "Resend message ID confirming delivery"
+    },
+    "outcome_notification_error": {
+      "type": "string",
+      "description": "Error message if notification failed"
     }
   },
   "required": [

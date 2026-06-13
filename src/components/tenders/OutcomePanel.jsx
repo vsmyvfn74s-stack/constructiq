@@ -2,10 +2,11 @@
  * OutcomePanel
  *
  * Two modes:
- *  - ACTIVE: tender is not converted — full workflow (assign outcomes, send notifications, convert).
+ *  - ACTIVE: full workflow — assign outcomes, send notifications server-side, convert.
  *  - LOCKED (read-only audit): tender.status === 'Converted' OR converted_project_id exists.
  *
- * Admin-only "Reopen Tender" escape hatch shown in locked mode.
+ * All email sending is delegated to the sendOutcomeNotifications backend function.
+ * The frontend never sends individual emails.
  */
 import React, { useState, useEffect } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -16,11 +17,10 @@ import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
-import { Send, CheckCircle2, XCircle, ExternalLink, Bell, BellOff, Lock, RotateCcw } from 'lucide-react';
+import { Send, CheckCircle2, XCircle, ExternalLink, Bell, BellOff, Lock, RotateCcw, RefreshCw, AlertTriangle } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { format } from 'date-fns';
 import { useToast } from '@/components/ui/use-toast';
-import { resolveTemplate, applyTemplate, buildEmailHtml } from '@/lib/emailTemplates';
 import { isAdmin } from '@/lib/permissions';
 
 export default function OutcomePanel({ tender, onUpdate, onConvert, canManage }) {
@@ -28,7 +28,6 @@ export default function OutcomePanel({ tender, onUpdate, onConvert, canManage })
   const { toast }   = useToast();
   const queryClient = useQueryClient();
 
-  // Locked mode: converted tender is a read-only audit record
   const isLocked = tender.status === 'Converted' || !!tender.converted_project_id;
 
   const [ourResult, setOurResult] = useState(tender.our_result || '');
@@ -36,8 +35,9 @@ export default function OutcomePanel({ tender, onUpdate, onConvert, canManage })
   const [sending, setSending]     = useState(false);
   const [savingOur, setSavingOur] = useState(false);
   const [reopening, setReopening] = useState(false);
+  const [lastSendResult, setLastSendResult] = useState(null);
 
-  const { data: submissions = [] } = useQuery({
+  const { data: submissions = [], refetch: refetchSubmissions } = useQuery({
     queryKey: ['tenderSubmissions', tender.id],
     queryFn:  () => base44.entities.TenderSubmission.filter({ tender_id: tender.id }),
     enabled:  !!tender.id,
@@ -49,7 +49,7 @@ export default function OutcomePanel({ tender, onUpdate, onConvert, canManage })
     enabled:  !!tender.converted_project_id,
   });
 
-  // Local outcome state — only used in active mode
+  // Local outcome/notes state — only used in active mode
   const [subOutcomes, setSubOutcomes] = useState({});
   const [subNotes, setSubNotes]       = useState({});
 
@@ -67,17 +67,6 @@ export default function OutcomePanel({ tender, onUpdate, onConvert, canManage })
     });
   }, [submissions]);
 
-  const { data: emailTemplates = [] } = useQuery({
-    queryKey: ['emailTemplates'],
-    queryFn:  () => base44.entities.EmailTemplate.list(),
-    enabled:  !isLocked,
-  });
-  const { data: emailBranding = {} } = useQuery({
-    queryKey: ['emailBranding'],
-    queryFn:  () => base44.entities.EmailBranding.list().then(r => r[0] ?? {}),
-    enabled:  !isLocked,
-  });
-
   // Group submissions by trade
   const groupedByTrade = submissions.reduce((acc, s) => {
     const trade = s.trade || 'Unspecified';
@@ -86,144 +75,114 @@ export default function OutcomePanel({ tender, onUpdate, onConvert, canManage })
     return acc;
   }, {});
 
-  // ── Actions (active mode only) ────────────────────────────────────────────
+  const failedSubmissions = submissions.filter(s => s.outcome_notification_status === 'Failed');
+  const hasFailed = failedSubmissions.length > 0;
+
+  // ── Helpers ───────────────────────────────────────────────────────────────
+
+  const invalidateAll = () => {
+    queryClient.invalidateQueries({ queryKey: ['tenderSubmissions', tender.id] });
+    queryClient.invalidateQueries({ queryKey: ['tender', tender.id] });
+    queryClient.invalidateQueries({ queryKey: ['tenders'] });
+  };
+
+  // ── Save outcomes to DB before sending ───────────────────────────────────
+
+  const persistOutcomes = async () => {
+    const updates = submissions
+      .filter(s => subOutcomes[s.id])
+      .map(s => base44.entities.TenderSubmission.update(s.id, {
+        outcome:       subOutcomes[s.id],
+        outcome_notes: subNotes[s.id] || '',
+      }));
+    await Promise.all(updates);
+  };
+
+  // ── Backend-driven send ───────────────────────────────────────────────────
+
+  const sendNotifications = async (retryFailedOnly = false) => {
+    setSending(true);
+    setLastSendResult(null);
+    try {
+      if (!retryFailedOnly) {
+        await persistOutcomes();
+      }
+      const res = await base44.functions.invoke('sendOutcomeNotifications', {
+        tenderId: tender.id,
+        retryFailedOnly,
+      });
+      const data = res?.data;
+      setLastSendResult(data);
+      invalidateAll();
+
+      if (data?.success) {
+        toast({
+          title: data.sent > 0
+            ? `${data.sent} notification${data.sent !== 1 ? 's' : ''} sent`
+            : 'No notifications sent',
+          description: data.failed > 0
+            ? `${data.failed} failed — use Retry Failed to resend`
+            : undefined,
+          variant: data.sent === 0 ? 'destructive' : 'default',
+        });
+      } else {
+        toast({ title: 'Send failed', description: data?.error || 'Unknown error', variant: 'destructive' });
+      }
+    } catch (e) {
+      toast({ title: 'Send failed', description: e?.message, variant: 'destructive' });
+    } finally {
+      setSending(false);
+    }
+  };
 
   const saveOurResult = async () => {
     setSavingOur(true);
     await onUpdate({ our_result: ourResult, our_result_notes: ourNotes });
-    queryClient.invalidateQueries({ queryKey: ['tender', tender.id] });
-    queryClient.invalidateQueries({ queryKey: ['tenders'] });
+    invalidateAll();
     setSavingOur(false);
     toast({ title: 'Result saved' });
-  };
-
-  const notifyWeUnsuccessful = async () => {
-    setSending(true);
-    const tplKey = 'tender_outcome_unsuccessful';
-    const tpl = resolveTemplate(emailTemplates, tplKey);
-    let sent = 0, failed = 0;
-    for (const sub of submissions) {
-      if (!sub.invitee_email) continue;
-      try {
-        const { subject, body } = applyTemplate(tpl, {
-          tender_number: tender.tender_number || '',
-          title:         tender.title || '',
-          invitee_name:  sub.invitee_name || '',
-          sender_name:   user?.full_name || '',
-          company_name:  emailBranding?.company_name || 'ConstructIQ',
-        });
-        const htmlBody = buildEmailHtml(body, emailBranding);
-        const res = await base44.functions.invoke('sendEmail', { to: sub.invitee_email, toName: sub.invitee_name || '', subject, htmlBody, templateKey: tplKey });
-        const resData = res?.data;
-        if (resData?.success === true && resData?.id) { sent++; } else { failed++; }
-      } catch (e) { failed++; }
-    }
-    toast({
-      title: sent > 0 ? `Notified ${sent} subcontractor${sent !== 1 ? 's' : ''}` : 'No emails sent',
-      description: failed > 0 ? `${failed} failed — check console` : undefined,
-      variant: sent === 0 ? 'destructive' : 'default',
-    });
-    setSending(false);
-  };
-
-  const sendAllOutcomeNotifications = async () => {
-    setSending(true);
-    let sent = 0, failed = 0;
-    for (const sub of submissions) {
-      if (!sub.invitee_email) continue;
-      const outcome = subOutcomes[sub.id];
-      const tplKey  = outcome === 'Awarded' ? 'tender_sub_awarded' : 'tender_sub_unsuccessful';
-      const tpl     = resolveTemplate(emailTemplates, tplKey);
-      try {
-        const { subject, body } = applyTemplate(tpl, {
-          tender_number: tender.tender_number || '',
-          title:         tender.title || '',
-          invitee_name:  sub.invitee_name || '',
-          sender_name:   user?.full_name || '',
-          company_name:  emailBranding?.company_name || 'ConstructIQ',
-        });
-        const htmlBody = buildEmailHtml(body, emailBranding);
-        const res = await base44.functions.invoke('sendEmail', { to: sub.invitee_email, toName: sub.invitee_name || '', subject, htmlBody, templateKey: tplKey });
-        const resData = res?.data;
-        if (resData?.success === true && resData?.id) {
-          await base44.entities.TenderSubmission.update(sub.id, {
-            outcome:             outcome || '',
-            outcome_notes:       subNotes[sub.id] || '',
-            outcome_notified_at: new Date().toISOString(),
-          });
-          sent++;
-        } else {
-          failed++;
-          toast({ title: `Notification failed for ${sub.invitee_name || sub.invitee_email}`, description: resData?.error || 'Resend did not confirm delivery', variant: 'destructive' });
-        }
-      } catch (e) {
-        failed++;
-        toast({ title: `Notification failed for ${sub.invitee_name || sub.invitee_email}`, description: e?.message, variant: 'destructive' });
-      }
-    }
-    queryClient.invalidateQueries({ queryKey: ['tenderSubmissions', tender.id] });
-    const anyAwarded = Object.values(subOutcomes).some(o => o === 'Awarded');
-    await onUpdate({
-      status:     anyAwarded ? 'Awarded' : 'Unsuccessful',
-      award_date: anyAwarded ? new Date().toISOString().split('T')[0] : tender.award_date,
-    });
-    toast({
-      title: sent > 0 ? `Notifications sent to ${sent} subcontractor${sent !== 1 ? 's' : ''}` : 'No emails sent',
-      description: failed > 0 ? `${failed} failed` : undefined,
-      variant: sent === 0 ? 'destructive' : 'default',
-    });
-    setSending(false);
-  };
-
-  const sendSingleNotification = async (sub) => {
-    console.log('[TRACE] entering sendSingleNotification', { subId: sub.id, email: sub.invitee_email });
-    if (!sub.invitee_email) { toast({ title: 'No email address', variant: 'destructive' }); return; }
-    const outcome = subOutcomes[sub.id];
-    const tplKey  = outcome === 'Awarded' ? 'tender_sub_awarded' : 'tender_sub_unsuccessful';
-    const tpl     = resolveTemplate(emailTemplates, tplKey);
-    try {
-      const { subject, body } = applyTemplate(tpl, {
-        tender_number: tender.tender_number || '',
-        title:         tender.title || '',
-        invitee_name:  sub.invitee_name || '',
-        sender_name:   user?.full_name || '',
-        company_name:  emailBranding?.company_name || 'ConstructIQ',
-      });
-      const htmlBody = buildEmailHtml(body, emailBranding);
-      const payload = { to: sub.invitee_email, toName: sub.invitee_name || '', subject, htmlBody, templateKey: tplKey };
-      console.log('[TRACE] payload', { to: payload.to, toName: payload.toName, subject: payload.subject, templateKey: payload.templateKey, htmlBodyLength: payload.htmlBody?.length });
-      console.log('[TRACE] before invoke sendEmail');
-      const res = await base44.functions.invoke('sendEmail', payload);
-      console.log('[TRACE] invoke response', JSON.stringify(res));
-      console.log('[TRACE] invoke response data', JSON.stringify(res?.data));
-      console.log('[TRACE] success check', { success: res?.data?.success, id: res?.data?.id });
-      const resData = res?.data;
-      if (resData?.success === true && resData?.id) {
-        await base44.entities.TenderSubmission.update(sub.id, {
-          outcome:             outcome || '',
-          outcome_notes:       subNotes[sub.id] || '',
-          outcome_notified_at: new Date().toISOString(),
-        });
-        queryClient.invalidateQueries({ queryKey: ['tenderSubmissions', tender.id] });
-        toast({ title: `Notification sent to ${sub.invitee_name}` });
-      } else {
-        toast({ title: 'Notification failed', description: resData?.error || 'Resend did not confirm delivery', variant: 'destructive' });
-      }
-    } catch (e) {
-      toast({ title: 'Notification failed', description: e?.message, variant: 'destructive' });
-    }
   };
 
   const handleReopen = async () => {
     setReopening(true);
     await onUpdate({ status: 'Awarded', converted_project_id: null });
-    queryClient.invalidateQueries({ queryKey: ['tender', tender.id] });
-    queryClient.invalidateQueries({ queryKey: ['tenders'] });
+    invalidateAll();
     setReopening(false);
-    toast({ title: 'Tender reopened', description: 'Status reset to Awarded. converted_project_id cleared.' });
+    toast({ title: 'Tender reopened', description: 'Status reset to Awarded. Converted project link cleared.' });
   };
 
-  // ── LOCKED MODE: Audit Record ─────────────────────────────────────────────
+  const notificationStatus = (sub) => {
+    const status = sub.outcome_notification_status;
+    if (status === 'Sent') return (
+      <div className="flex flex-col items-center gap-0.5">
+        <span className="inline-flex items-center gap-1 text-green-600 font-medium text-xs">
+          <Bell className="w-3 h-3" /> Sent
+        </span>
+        {sub.outcome_notified_at && (
+          <span className="text-muted-foreground text-[10px]">
+            {format(new Date(sub.outcome_notified_at), 'dd MMM yyyy HH:mm')}
+          </span>
+        )}
+      </div>
+    );
+    if (status === 'Failed') return (
+      <span className="inline-flex items-center gap-1 text-red-600 text-xs font-medium" title={sub.outcome_notification_error || ''}>
+        <AlertTriangle className="w-3 h-3" /> Failed
+      </span>
+    );
+    if (status === 'Pending') return (
+      <span className="inline-flex items-center gap-1 text-yellow-600 text-xs">
+        <RefreshCw className="w-3 h-3" /> Pending
+      </span>
+    );
+    return (
+      <span className="inline-flex items-center gap-1 text-muted-foreground text-xs">
+        <BellOff className="w-3 h-3" /> Not Sent
+      </span>
+    );
+  };
+
+  // ── LOCKED MODE ───────────────────────────────────────────────────────────
   if (isLocked) {
     return (
       <div className="space-y-6">
@@ -233,7 +192,22 @@ export default function OutcomePanel({ tender, onUpdate, onConvert, canManage })
           <span>This tender has been converted to a project. The outcome record is now locked and read-only.</span>
         </div>
 
-        {/* Linked project card */}
+        {/* Status chips */}
+        <div className="flex flex-wrap gap-2">
+          <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-green-100 text-green-700 text-xs font-medium">
+            <CheckCircle2 className="w-3.5 h-3.5" /> Outcome notifications completed
+          </span>
+          {tender.converted_project_id && (
+            <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-blue-100 text-blue-700 text-xs font-medium">
+              <ExternalLink className="w-3.5 h-3.5" /> Project created
+            </span>
+          )}
+          <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-gray-100 text-gray-600 text-xs font-medium">
+            <Lock className="w-3.5 h-3.5" /> Outcome workflow locked
+          </span>
+        </div>
+
+        {/* Linked project */}
         {tender.converted_project_id && (
           <Card className="border-green-200 bg-green-50/40">
             <CardContent className="pt-4">
@@ -278,7 +252,7 @@ export default function OutcomePanel({ tender, onUpdate, onConvert, canManage })
           </Card>
         )}
 
-        {/* Outcome Summary table */}
+        {/* Outcome summary table */}
         {submissions.length > 0 && (
           <Card>
             <CardHeader><CardTitle className="text-sm">Outcome Summary</CardTitle></CardHeader>
@@ -292,9 +266,8 @@ export default function OutcomePanel({ tender, onUpdate, onConvert, canManage })
                         <tr className="bg-muted/40 border-b text-muted-foreground">
                           <th className="text-left px-3 py-2 font-medium">Business Name</th>
                           <th className="text-left px-3 py-2 font-medium">Contractor</th>
-                          <th className="text-right px-3 py-2 font-medium">Submitted Price</th>
+                          <th className="text-right px-3 py-2 font-medium">Price</th>
                           <th className="text-center px-3 py-2 font-medium">Outcome</th>
-                          <th className="text-center px-3 py-2 font-medium">Award Date</th>
                           <th className="text-center px-3 py-2 font-medium">Notification</th>
                           <th className="text-center px-3 py-2 font-medium">Project</th>
                         </tr>
@@ -316,38 +289,16 @@ export default function OutcomePanel({ tender, onUpdate, onConvert, canManage })
                                 <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-red-100 text-red-700 font-medium">
                                   <XCircle className="w-3 h-3" /> Unsuccessful
                                 </span>
-                              ) : (
-                                <span className="text-muted-foreground">—</span>
-                              )}
+                              ) : <span className="text-muted-foreground">—</span>}
                             </td>
-                            <td className="px-3 py-2 text-center text-muted-foreground">
-                              {tender.award_date ? format(new Date(tender.award_date), 'dd MMM yyyy') : '—'}
-                            </td>
-                            <td className="px-3 py-2 text-center">
-                              {sub.outcome_notified_at ? (
-                                <div className="flex flex-col items-center gap-0.5">
-                                  <span className="inline-flex items-center gap-1 text-green-600 font-medium">
-                                    <Bell className="w-3 h-3" /> Sent
-                                  </span>
-                                  <span className="text-muted-foreground text-[10px]">
-                                    {format(new Date(sub.outcome_notified_at), 'dd MMM yyyy HH:mm')}
-                                  </span>
-                                </div>
-                              ) : (
-                                <span className="inline-flex items-center gap-1 text-muted-foreground">
-                                  <BellOff className="w-3 h-3" /> Not Sent
-                                </span>
-                              )}
-                            </td>
+                            <td className="px-3 py-2 text-center">{notificationStatus(sub)}</td>
                             <td className="px-3 py-2 text-center">
                               {sub.outcome === 'Awarded' && tender.converted_project_id ? (
                                 <Link to={`/projects/${tender.converted_project_id}`}
                                   className="inline-flex items-center gap-1 text-primary text-xs hover:underline font-medium">
                                   <ExternalLink className="w-3 h-3" /> View
                                 </Link>
-                              ) : (
-                                <span className="text-muted-foreground">—</span>
-                              )}
+                              ) : <span className="text-muted-foreground">—</span>}
                             </td>
                           </tr>
                         ))}
@@ -360,7 +311,7 @@ export default function OutcomePanel({ tender, onUpdate, onConvert, canManage })
           </Card>
         )}
 
-        {/* Admin-only: Reopen Tender */}
+        {/* Admin: Reopen */}
         {isAdmin(user) && (
           <div className="flex justify-end pt-2 border-t">
             <AlertDialog>
@@ -375,7 +326,6 @@ export default function OutcomePanel({ tender, onUpdate, onConvert, canManage })
                   <AlertDialogDescription>
                     This will reset the tender status to <strong>Awarded</strong> and unlink the converted project reference.
                     The existing project will <strong>not</strong> be deleted. All historical outcome data will be retained.
-                    This action should only be used to correct a conversion error.
                   </AlertDialogDescription>
                 </AlertDialogHeader>
                 <AlertDialogFooter>
@@ -396,17 +346,45 @@ export default function OutcomePanel({ tender, onUpdate, onConvert, canManage })
     );
   }
 
-  // ── ACTIVE MODE: Full workflow ────────────────────────────────────────────
-  const hasOutcomeData = submissions.some(s => s.outcome);
+  // ── ACTIVE MODE ───────────────────────────────────────────────────────────
+  const hasOutcomeData    = submissions.some(s => s.outcome);
+  const hasUnnotified     = submissions.some(s => s.outcome && !s.outcome_notification_status || s.outcome_notification_status === 'Failed' || (!s.outcome_notified_at && s.outcome));
+  const allAssigned       = submissions.length > 0 && submissions.every(s => subOutcomes[s.id]);
 
   return (
     <div className="space-y-6">
 
-      {/* Award Summary (if outcomes already set) */}
+      {/* Send result banner */}
+      {lastSendResult && (
+        <div className={`flex items-start gap-3 px-4 py-3 rounded-lg border text-sm ${
+          lastSendResult.failed > 0 ? 'bg-yellow-50 border-yellow-200 text-yellow-800' : 'bg-green-50 border-green-200 text-green-700'
+        }`}>
+          {lastSendResult.failed > 0 ? <AlertTriangle className="w-4 h-4 flex-shrink-0 mt-0.5" /> : <CheckCircle2 className="w-4 h-4 flex-shrink-0 mt-0.5" />}
+          <div>
+            <p className="font-medium">
+              {lastSendResult.sent} sent, {lastSendResult.failed} failed of {lastSendResult.total} total
+            </p>
+            {lastSendResult.failed > 0 && (
+              <p className="text-xs mt-0.5 opacity-80">Use "Retry Failed" to resend unsuccessful notifications.</p>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Outcome Summary (if outcomes already set) */}
       {hasOutcomeData && (
         <Card>
           <CardHeader>
-            <CardTitle className="text-sm">Award Summary</CardTitle>
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-sm">Notification Status</CardTitle>
+              <div className="flex gap-2">
+                {hasFailed && (
+                  <Button onClick={() => sendNotifications(true)} disabled={sending} variant="outline" size="sm" className="gap-2 border-yellow-400 text-yellow-700 hover:bg-yellow-50">
+                    <RefreshCw className="w-3.5 h-3.5" /> {sending ? 'Retrying...' : 'Retry Failed'}
+                  </Button>
+                )}
+              </div>
+            </div>
           </CardHeader>
           <CardContent className="space-y-4">
             {Object.entries(groupedByTrade).map(([trade, subs]) => (
@@ -417,18 +395,17 @@ export default function OutcomePanel({ tender, onUpdate, onConvert, canManage })
                     <thead>
                       <tr className="bg-muted/40 border-b text-muted-foreground">
                         <th className="text-left px-3 py-2 font-medium">Business Name</th>
-                        <th className="text-left px-3 py-2 font-medium">Contractor</th>
-                        <th className="text-right px-3 py-2 font-medium">Submitted Price</th>
+                        <th className="text-right px-3 py-2 font-medium">Price</th>
                         <th className="text-center px-3 py-2 font-medium">Outcome</th>
-                        <th className="text-center px-3 py-2 font-medium">Award Date</th>
                         <th className="text-center px-3 py-2 font-medium">Notification</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y">
                       {subs.map(sub => (
                         <tr key={sub.id} className="hover:bg-muted/20">
-                          <td className="px-3 py-2 font-medium">{sub.business_name || '—'}</td>
-                          <td className="px-3 py-2 text-muted-foreground">{sub.invitee_name || sub.full_name || '—'}</td>
+                          <td className="px-3 py-2 font-medium">
+                            {sub.business_name || sub.invitee_name || '—'}
+                          </td>
                           <td className="px-3 py-2 text-right font-mono">
                             {sub.lump_sum_price ? `$${Number(sub.lump_sum_price).toLocaleString('en-NZ')}` : '—'}
                           </td>
@@ -441,29 +418,9 @@ export default function OutcomePanel({ tender, onUpdate, onConvert, canManage })
                               <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-red-100 text-red-700 font-medium">
                                 <XCircle className="w-3 h-3" /> Unsuccessful
                               </span>
-                            ) : (
-                              <span className="text-muted-foreground">—</span>
-                            )}
+                            ) : <span className="text-muted-foreground">—</span>}
                           </td>
-                          <td className="px-3 py-2 text-center text-muted-foreground">
-                            {tender.award_date ? format(new Date(tender.award_date), 'dd MMM yyyy') : '—'}
-                          </td>
-                          <td className="px-3 py-2 text-center">
-                            {sub.outcome_notified_at ? (
-                              <div className="flex flex-col items-center gap-0.5">
-                                <span className="inline-flex items-center gap-1 text-green-600 font-medium">
-                                  <Bell className="w-3 h-3" /> Sent
-                                </span>
-                                <span className="text-muted-foreground text-[10px]">
-                                  {format(new Date(sub.outcome_notified_at), 'dd MMM yyyy HH:mm')}
-                                </span>
-                              </div>
-                            ) : (
-                              <span className="inline-flex items-center gap-1 text-muted-foreground">
-                                <BellOff className="w-3 h-3" /> Not Sent
-                              </span>
-                            )}
-                          </td>
+                          <td className="px-3 py-2 text-center">{notificationStatus(sub)}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -505,26 +462,31 @@ export default function OutcomePanel({ tender, onUpdate, onConvert, canManage })
                   <CheckCircle2 className="w-4 h-4" /> Convert to Project
                 </Button>
               )}
-              {ourResult === 'unsuccessful' && submissions.length > 0 && (
-                <Button onClick={notifyWeUnsuccessful} disabled={sending} variant="outline" size="sm" className="gap-2">
-                  <Send className="w-4 h-4" /> {sending ? 'Sending...' : 'Notify subcontractors'}
-                </Button>
-              )}
             </div>
           )}
         </CardContent>
       </Card>
 
-      {/* Subcontractor outcome assignment */}
+      {/* Assign outcomes & send */}
       {canManage && submissions.length > 0 && (
         <Card>
           <CardHeader>
             <div className="flex items-center justify-between">
-              <CardTitle className="text-sm">Assign & Notify Subcontractors</CardTitle>
-              <Button onClick={sendAllOutcomeNotifications} disabled={sending} size="sm" className="gap-2">
-                <Send className="w-4 h-4" /> {sending ? 'Sending...' : 'Send All Notifications'}
+              <CardTitle className="text-sm">Assign Outcomes & Notify</CardTitle>
+              <Button
+                onClick={() => sendNotifications(false)}
+                disabled={sending || !allAssigned}
+                size="sm"
+                className="gap-2"
+                title={!allAssigned ? 'Assign an outcome to all submissions first' : ''}
+              >
+                <Send className="w-4 h-4" />
+                {sending ? 'Sending...' : 'Send All Notifications'}
               </Button>
             </div>
+            {!allAssigned && (
+              <p className="text-xs text-muted-foreground mt-1">Assign Awarded or Unsuccessful to each submission before sending.</p>
+            )}
           </CardHeader>
           <CardContent className="space-y-5">
             {Object.entries(groupedByTrade).map(([trade, subs]) => (
@@ -537,7 +499,7 @@ export default function OutcomePanel({ tender, onUpdate, onConvert, canManage })
                         <th className="text-left px-3 py-2 font-medium">Business Name</th>
                         <th className="text-right px-3 py-2 font-medium">Price</th>
                         <th className="text-center px-3 py-2 font-medium">Outcome</th>
-                        <th className="px-3 py-2 font-medium">Notes / Notify</th>
+                        <th className="px-3 py-2 font-medium">Notes</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y">
@@ -545,8 +507,11 @@ export default function OutcomePanel({ tender, onUpdate, onConvert, canManage })
                         <tr key={sub.id} className="hover:bg-muted/20">
                           <td className="px-3 py-2 font-medium">
                             {sub.business_name || sub.invitee_name || '—'}
-                            {sub.outcome_notified_at && (
+                            {sub.outcome_notification_status === 'Sent' && (
                               <span className="ml-2 text-green-600 text-[10px]">✓ Notified</span>
+                            )}
+                            {sub.outcome_notification_status === 'Failed' && (
+                              <span className="ml-2 text-red-500 text-[10px]">✗ Failed</span>
                             )}
                           </td>
                           <td className="px-3 py-2 text-right font-mono">
@@ -565,14 +530,12 @@ export default function OutcomePanel({ tender, onUpdate, onConvert, canManage })
                             </div>
                           </td>
                           <td className="px-3 py-2">
-                            <div className="flex items-center gap-2">
-                              <Textarea value={subNotes[sub.id] || ''} onChange={e => setSubNotes(n => ({ ...n, [sub.id]: e.target.value }))}
-                                placeholder="Notes..." className="h-8 text-xs min-h-0 py-1 flex-1" />
-                              <Button variant="outline" size="sm" className="gap-1 h-7 text-xs flex-shrink-0"
-                                onClick={() => { console.log('[TRACE] notify button clicked', { subId: sub.id }); sendSingleNotification(sub); }}>
-                                <Send className="w-3 h-3" />
-                              </Button>
-                            </div>
+                            <Textarea
+                              value={subNotes[sub.id] || ''}
+                              onChange={e => setSubNotes(n => ({ ...n, [sub.id]: e.target.value }))}
+                              placeholder="Notes..."
+                              className="h-8 text-xs min-h-0 py-1"
+                            />
                           </td>
                         </tr>
                       ))}
