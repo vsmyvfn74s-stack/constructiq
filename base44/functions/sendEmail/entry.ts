@@ -8,6 +8,8 @@ Deno.serve(async (req) => {
     if (!user) return Response.json({ error: 'Unauthorized' }, { status: 401 });
 
     const { to, toName, subject, htmlBody } = await req.json();
+    console.log('[TRACE] sendEmail entered');
+    console.log('[TRACE] resend payload', JSON.stringify({ to, subject }));
 
     if (!to || !subject || !htmlBody) {
       return Response.json({ error: 'to, subject, htmlBody required' }, { status: 400 });
@@ -25,6 +27,7 @@ Deno.serve(async (req) => {
       subject,
       html: htmlBody,
     });
+    console.log('[TRACE] resend result', JSON.stringify(result));
 
     if (!result || !result.data || !result.data.id) {
       console.error('[sendEmail] Resend did not confirm — result:', JSON.stringify(result));

@@ -176,6 +176,7 @@ export default function OutcomePanel({ tender, onUpdate, onConvert, canManage })
   };
 
   const sendSingleNotification = async (sub) => {
+    console.log('[TRACE] entering sendSingleNotification', { subId: sub.id, email: sub.invitee_email });
     if (!sub.invitee_email) { toast({ title: 'No email address', variant: 'destructive' }); return; }
     const outcome = subOutcomes[sub.id];
     const tplKey  = outcome === 'Awarded' ? 'tender_sub_awarded' : 'tender_sub_unsuccessful';
@@ -189,7 +190,13 @@ export default function OutcomePanel({ tender, onUpdate, onConvert, canManage })
         company_name:  emailBranding?.company_name || 'ConstructIQ',
       });
       const htmlBody = buildEmailHtml(body, emailBranding);
-      const res = await base44.functions.invoke('sendEmail', { to: sub.invitee_email, toName: sub.invitee_name || '', subject, htmlBody, templateKey: tplKey });
+      const payload = { to: sub.invitee_email, toName: sub.invitee_name || '', subject, htmlBody, templateKey: tplKey };
+      console.log('[TRACE] payload', { to: payload.to, toName: payload.toName, subject: payload.subject, templateKey: payload.templateKey, htmlBodyLength: payload.htmlBody?.length });
+      console.log('[TRACE] before invoke sendEmail');
+      const res = await base44.functions.invoke('sendEmail', payload);
+      console.log('[TRACE] invoke response', JSON.stringify(res));
+      console.log('[TRACE] invoke response data', JSON.stringify(res?.data));
+      console.log('[TRACE] success check', { success: res?.data?.success, id: res?.data?.id });
       const resData = res?.data;
       if (resData?.success === true && resData?.id) {
         await base44.entities.TenderSubmission.update(sub.id, {
@@ -562,7 +569,7 @@ export default function OutcomePanel({ tender, onUpdate, onConvert, canManage })
                               <Textarea value={subNotes[sub.id] || ''} onChange={e => setSubNotes(n => ({ ...n, [sub.id]: e.target.value }))}
                                 placeholder="Notes..." className="h-8 text-xs min-h-0 py-1 flex-1" />
                               <Button variant="outline" size="sm" className="gap-1 h-7 text-xs flex-shrink-0"
-                                onClick={() => sendSingleNotification(sub)}>
+                                onClick={() => { console.log('[TRACE] notify button clicked', { subId: sub.id }); sendSingleNotification(sub); }}>
                                 <Send className="w-3 h-3" />
                               </Button>
                             </div>
