@@ -60,7 +60,43 @@ export default function UserManagement() {
   });
 
   const deleteUserMutation = useMutation({
-    mutationFn: (userId) => base44.entities.User.delete(userId),
+    mutationFn: async (targetUser) => {
+      const now = new Date().toISOString();
+
+      // 1. Cancel all pending invitations for this email
+      try {
+        const invites = await base44.entities.InvitedUser.filter({ email: targetUser.email });
+        await Promise.all(
+          invites.filter(i => i.status === 'Pending').map(i =>
+            base44.entities.InvitedUser.update(i.id, { status: 'Cancelled' })
+          )
+        );
+      } catch (_) {}
+
+      // 2. Cancel all pending project assignments
+      try {
+        const assignments = await base44.entities.PendingProjectAssignment.filter({ email: targetUser.email, status: 'Pending' });
+        await Promise.all(assignments.map(a =>
+          base44.entities.PendingProjectAssignment.update(a.id, { status: 'Cancelled' })
+        ));
+      } catch (_) {}
+
+      // 3. AuditLog entry
+      try {
+        await base44.entities.AuditLog.create({
+          action: 'User Deleted',
+          entity_type: 'User',
+          entity_id: targetUser.id,
+          user_id: user?.id,
+          user_name: user?.full_name || user?.email,
+          description: `User ${targetUser.email} (${targetUser.full_name || 'unnamed'}) deleted by ${user?.email}`,
+          created_date: now,
+        });
+      } catch (_) {}
+
+      // 4. Delete the user
+      await base44.entities.User.delete(targetUser.id);
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['users'] });
       setDeleteConfirm(null);
@@ -240,7 +276,7 @@ export default function UserManagement() {
           </p>
           <DialogFooter>
             <Button variant="outline" onClick={() => setDeleteConfirm(null)}>Cancel</Button>
-            <Button variant="destructive" onClick={() => deleteUserMutation.mutate(deleteConfirm.id)}
+            <Button variant="destructive" onClick={() => deleteUserMutation.mutate(deleteConfirm)}
               disabled={deleteUserMutation.isPending}>
               {deleteUserMutation.isPending ? 'Deleting...' : 'Delete'}
             </Button>
