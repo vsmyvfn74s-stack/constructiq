@@ -12,7 +12,7 @@ import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Send, CheckCircle2, XCircle, FolderOpen } from 'lucide-react';
+import { Send, CheckCircle2, XCircle, FolderOpen, ExternalLink, Bell, BellOff } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { format } from 'date-fns';
 import { useToast } from '@/components/ui/use-toast';
@@ -32,6 +32,13 @@ export default function OutcomePanel({ tender, onUpdate, onConvert, canManage })
     queryKey: ['tenderSubmissions', tender.id],
     queryFn:  () => base44.entities.TenderSubmission.filter({ tender_id: tender.id }),
     enabled:  !!tender.id,
+  });
+
+  // Fetch converted project name if applicable
+  const { data: convertedProject } = useQuery({
+    queryKey: ['project', tender.converted_project_id],
+    queryFn:  () => base44.entities.Project.filter({ id: tender.converted_project_id }).then(r => r[0] ?? null),
+    enabled:  !!tender.converted_project_id,
   });
 
   // Local outcome state keyed by submission.id — synced from DB whenever submissions refetch
@@ -169,31 +176,116 @@ export default function OutcomePanel({ tender, onUpdate, onConvert, canManage })
     }
   };
 
-  // Header info: award date, linked project, status
-  const headerItems = [
-    tender.status && { label: 'Tender Status', value: tender.status },
-    tender.award_date && { label: 'Award Date', value: format(new Date(tender.award_date), 'dd MMM yyyy') },
-    tender.converted_project_id && { label: 'Linked Project', isLink: true, to: `/projects/${tender.converted_project_id}`, value: 'Open Project →' },
-  ].filter(Boolean);
+  // Group submissions by trade for Award Summary
+  const groupedByTrade = submissions.reduce((acc, s) => {
+    const trade = s.trade || 'Unspecified';
+    if (!acc[trade]) acc[trade] = [];
+    acc[trade].push(s);
+    return acc;
+  }, {});
+
+  const hasOutcomeData = submissions.some(s => s.outcome);
 
   return (
     <div className="space-y-6">
-      {/* Header info strip */}
-      {headerItems.length > 0 && (
-        <div className="flex flex-wrap gap-4 p-3 bg-muted/40 rounded-lg border text-xs">
-          {headerItems.map(item => (
-            <div key={item.label}>
-              <span className="text-muted-foreground font-medium">{item.label}: </span>
-              {item.isLink ? (
-                <Link to={item.to} className="text-primary hover:underline inline-flex items-center gap-1">
-                  <FolderOpen className="w-3 h-3" /> {item.value}
-                </Link>
-              ) : (
-                <span className="font-semibold">{item.value}</span>
-              )}
+
+      {/* ── Award Summary (permanent record, read from TenderSubmission) ── */}
+      {hasOutcomeData && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-sm">Award Summary</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {Object.entries(groupedByTrade).map(([trade, subs]) => (
+              <div key={trade}>
+                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">{trade}</p>
+                <div className="border rounded-lg overflow-hidden">
+                  <table className="w-full text-xs">
+                    <thead>
+                      <tr className="bg-muted/40 border-b text-muted-foreground">
+                        <th className="text-left px-3 py-2 font-medium">Business Name</th>
+                        <th className="text-left px-3 py-2 font-medium">Contractor</th>
+                        <th className="text-right px-3 py-2 font-medium">Submitted Price</th>
+                        <th className="text-center px-3 py-2 font-medium">Outcome</th>
+                        <th className="text-center px-3 py-2 font-medium">Award Date</th>
+                        <th className="text-center px-3 py-2 font-medium">Notification</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y">
+                      {subs.map(sub => (
+                        <tr key={sub.id} className="hover:bg-muted/20">
+                          <td className="px-3 py-2 font-medium">{sub.business_name || '—'}</td>
+                          <td className="px-3 py-2 text-muted-foreground">{sub.invitee_name || sub.full_name || '—'}</td>
+                          <td className="px-3 py-2 text-right font-mono">
+                            {sub.lump_sum_price ? `$${Number(sub.lump_sum_price).toLocaleString('en-NZ')}` : '—'}
+                          </td>
+                          <td className="px-3 py-2 text-center">
+                            {sub.outcome === 'Awarded' ? (
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-green-100 text-green-700 font-medium">
+                                <CheckCircle2 className="w-3 h-3" /> Awarded
+                              </span>
+                            ) : sub.outcome === 'Unsuccessful' ? (
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-red-100 text-red-700 font-medium">
+                                <XCircle className="w-3 h-3" /> Unsuccessful
+                              </span>
+                            ) : (
+                              <span className="text-muted-foreground">—</span>
+                            )}
+                          </td>
+                          <td className="px-3 py-2 text-center text-muted-foreground">
+                            {tender.award_date ? format(new Date(tender.award_date), 'dd MMM yyyy') : '—'}
+                          </td>
+                          <td className="px-3 py-2 text-center">
+                            {sub.outcome_notified_at ? (
+                              <div className="flex flex-col items-center gap-0.5">
+                                <span className="inline-flex items-center gap-1 text-green-600 font-medium">
+                                  <Bell className="w-3 h-3" /> Sent
+                                </span>
+                                <span className="text-muted-foreground text-[10px]">
+                                  {format(new Date(sub.outcome_notified_at), 'dd MMM yyyy HH:mm')}
+                                </span>
+                              </div>
+                            ) : (
+                              <span className="inline-flex items-center gap-1 text-muted-foreground">
+                                <BellOff className="w-3 h-3" /> Not Sent
+                              </span>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      )}
+
+      {/* ── Project Conversion History ── */}
+      {tender.converted_project_id && (
+        <Card className="border-green-200 bg-green-50/40">
+          <CardContent className="pt-4">
+            <div className="flex items-start justify-between gap-4">
+              <div className="space-y-1">
+                <p className="text-xs font-semibold text-green-700 uppercase tracking-wide">Converted to Project</p>
+                <p className="text-sm font-medium text-foreground">
+                  {convertedProject?.name || 'Project'}
+                </p>
+                {tender.award_date && (
+                  <p className="text-xs text-muted-foreground">
+                    Converted on {format(new Date(tender.award_date), 'dd MMM yyyy')}
+                  </p>
+                )}
+              </div>
+              <Link to={`/projects/${tender.converted_project_id}`}>
+                <Button variant="outline" size="sm" className="gap-2 border-green-500 text-green-700 hover:bg-green-100">
+                  <ExternalLink className="w-3 h-3" /> Open Project
+                </Button>
+              </Link>
             </div>
-          ))}
-        </div>
+          </CardContent>
+        </Card>
       )}
 
       {/* Our result */}
@@ -236,91 +328,75 @@ export default function OutcomePanel({ tender, onUpdate, onConvert, canManage })
         </CardContent>
       </Card>
 
-      {/* Subcontractor results — grouped by trade */}
-      {(tender.our_result || ourResult) && submissions.length > 0 && (() => {
-        const grouped = submissions.reduce((acc, s) => {
-          const trade = s.trade || 'Unspecified';
-          if (!acc[trade]) acc[trade] = [];
-          acc[trade].push(s);
-          return acc;
-        }, {});
-        return (
-          <Card>
-            <CardHeader>
-              <div className="flex items-center justify-between">
-                <CardTitle className="text-sm">Subcontractor Results</CardTitle>
-                {canManage && (
-                  <Button onClick={sendAllOutcomeNotifications} disabled={sending} size="sm" className="gap-2">
-                    <Send className="w-4 h-4" /> {sending ? 'Sending...' : 'Send All Notifications'}
-                  </Button>
-                )}
-              </div>
-            </CardHeader>
-            <CardContent className="space-y-5">
-              {Object.entries(grouped).map(([trade, subs]) => (
-                <div key={trade}>
-                  <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">{trade}</p>
-                  <div className="border rounded-lg overflow-hidden">
-                    <table className="w-full text-xs">
-                      <thead>
-                        <tr className="bg-muted/40 border-b text-muted-foreground">
-                          <th className="text-left px-3 py-2 font-medium">Business Name</th>
-                          <th className="text-left px-3 py-2 font-medium">Contact</th>
-                          <th className="text-right px-3 py-2 font-medium">Submitted Price</th>
-                          <th className="text-center px-3 py-2 font-medium">Outcome</th>
-                          {canManage && <th className="px-3 py-2 font-medium">Notes / Notify</th>}
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y">
-                        {subs.map(sub => (
-                          <tr key={sub.id} className="hover:bg-muted/20">
-                            <td className="px-3 py-2">
-                              <p className="font-medium">{sub.business_name || '—'}</p>
-                            </td>
-                            <td className="px-3 py-2 text-muted-foreground">
-                              {sub.invitee_name || sub.full_name || '—'}
-                              {sub.outcome_notified_at && <span className="ml-1 text-green-600">✓</span>}
-                            </td>
-                            <td className="px-3 py-2 text-right font-mono">
-                              {sub.lump_sum_price
-                                ? `$${Number(sub.lump_sum_price).toLocaleString('en-NZ')}`
-                                : '—'}
-                            </td>
-                            <td className="px-3 py-2">
-                              <div className="flex justify-center gap-1">
-                                <button onClick={() => canManage && setSubOutcomes(r => ({ ...r, [sub.id]: 'Awarded' }))}
-                                  className={`px-2 py-1 rounded text-xs font-medium border transition-all ${subOutcomes[sub.id] === 'Awarded' ? 'bg-green-100 text-green-700 border-green-400' : 'border-border hover:bg-muted'} ${!canManage ? 'cursor-default' : ''}`}>
-                                  Awarded
-                                </button>
-                                <button onClick={() => canManage && setSubOutcomes(r => ({ ...r, [sub.id]: 'Unsuccessful' }))}
-                                  className={`px-2 py-1 rounded text-xs font-medium border transition-all ${subOutcomes[sub.id] === 'Unsuccessful' ? 'bg-red-100 text-red-700 border-red-400' : 'border-border hover:bg-muted'} ${!canManage ? 'cursor-default' : ''}`}>
-                                  Unsuccessful
-                                </button>
-                              </div>
-                            </td>
-                            {canManage && (
-                              <td className="px-3 py-2">
-                                <div className="flex items-center gap-2">
-                                  <Textarea value={subNotes[sub.id] || ''} onChange={e => setSubNotes(n => ({ ...n, [sub.id]: e.target.value }))}
-                                    placeholder="Notes..." className="h-8 text-xs min-h-0 py-1 flex-1" />
-                                  <Button variant="outline" size="sm" className="gap-1 h-7 text-xs flex-shrink-0"
-                                    onClick={() => sendSingleNotification(sub)}>
-                                    <Send className="w-3 h-3" />
-                                  </Button>
-                                </div>
-                              </td>
+      {/* Subcontractor outcome assignment — only shown when managing and outcomes not yet finalised */}
+      {canManage && submissions.length > 0 && (
+        <Card>
+          <CardHeader>
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-sm">Assign & Notify Subcontractors</CardTitle>
+              <Button onClick={sendAllOutcomeNotifications} disabled={sending} size="sm" className="gap-2">
+                <Send className="w-4 h-4" /> {sending ? 'Sending...' : 'Send All Notifications'}
+              </Button>
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-5">
+            {Object.entries(groupedByTrade).map(([trade, subs]) => (
+              <div key={trade}>
+                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">{trade}</p>
+                <div className="border rounded-lg overflow-hidden">
+                  <table className="w-full text-xs">
+                    <thead>
+                      <tr className="bg-muted/40 border-b text-muted-foreground">
+                        <th className="text-left px-3 py-2 font-medium">Business Name</th>
+                        <th className="text-right px-3 py-2 font-medium">Price</th>
+                        <th className="text-center px-3 py-2 font-medium">Outcome</th>
+                        <th className="px-3 py-2 font-medium">Notes / Notify</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y">
+                      {subs.map(sub => (
+                        <tr key={sub.id} className="hover:bg-muted/20">
+                          <td className="px-3 py-2 font-medium">
+                            {sub.business_name || sub.invitee_name || '—'}
+                            {sub.outcome_notified_at && (
+                              <span className="ml-2 text-green-600 text-[10px]">✓ Notified</span>
                             )}
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
+                          </td>
+                          <td className="px-3 py-2 text-right font-mono">
+                            {sub.lump_sum_price ? `$${Number(sub.lump_sum_price).toLocaleString('en-NZ')}` : '—'}
+                          </td>
+                          <td className="px-3 py-2">
+                            <div className="flex justify-center gap-1">
+                              <button onClick={() => setSubOutcomes(r => ({ ...r, [sub.id]: 'Awarded' }))}
+                                className={`px-2 py-1 rounded text-xs font-medium border transition-all ${subOutcomes[sub.id] === 'Awarded' ? 'bg-green-100 text-green-700 border-green-400' : 'border-border hover:bg-muted'}`}>
+                                Awarded
+                              </button>
+                              <button onClick={() => setSubOutcomes(r => ({ ...r, [sub.id]: 'Unsuccessful' }))}
+                                className={`px-2 py-1 rounded text-xs font-medium border transition-all ${subOutcomes[sub.id] === 'Unsuccessful' ? 'bg-red-100 text-red-700 border-red-400' : 'border-border hover:bg-muted'}`}>
+                                Unsuccessful
+                              </button>
+                            </div>
+                          </td>
+                          <td className="px-3 py-2">
+                            <div className="flex items-center gap-2">
+                              <Textarea value={subNotes[sub.id] || ''} onChange={e => setSubNotes(n => ({ ...n, [sub.id]: e.target.value }))}
+                                placeholder="Notes..." className="h-8 text-xs min-h-0 py-1 flex-1" />
+                              <Button variant="outline" size="sm" className="gap-1 h-7 text-xs flex-shrink-0"
+                                onClick={() => sendSingleNotification(sub)}>
+                                <Send className="w-3 h-3" />
+                              </Button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
                 </div>
-              ))}
-            </CardContent>
-          </Card>
-        );
-      })()}
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 }
