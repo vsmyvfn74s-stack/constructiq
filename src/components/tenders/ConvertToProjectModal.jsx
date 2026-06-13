@@ -9,7 +9,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '
 import { CheckCircle2, ArrowRight } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { useToast } from '@/components/ui/use-toast';
-import { useQueryClient } from '@tanstack/react-query';
+import { useQueryClient, useQuery } from '@tanstack/react-query';
 
 export default function ConvertToProjectModal({ tender, open, onOpenChange }) {
   const navigate = useNavigate();
@@ -18,7 +18,14 @@ export default function ConvertToProjectModal({ tender, open, onOpenChange }) {
   const [converting, setConverting] = useState(false);
 
   const alreadyConverted = !!tender?.converted_project_id;
-  const awardedSubs = (tender.invitees || []).filter(i => i.status === 'Awarded');
+
+  const { data: allSubmissions = [] } = useQuery({
+    queryKey: ['tenderSubmissions', tender?.id],
+    queryFn: () => base44.entities.TenderSubmission.filter({ tender_id: tender.id }),
+    enabled: !!tender?.id && open,
+  });
+
+  const awardedSubs = allSubmissions.filter(s => s.outcome === 'Awarded');
 
   const [projectName, setProjectName] = useState(tender.title || '');
   const [includeDesc, setIncludeDesc] = useState(true);
@@ -40,9 +47,19 @@ export default function ConvertToProjectModal({ tender, open, onOpenChange }) {
         if (tender.project_manager_name) team.push({ full_name: tender.project_manager_name, user_email: tender.project_manager_email || '', role: 'Internal Project Manager', business_name: '', phone: '' });
       }
       if (includeSubs) {
+        console.log(`[ConvertToProject] Total submissions: ${allSubmissions.length}`);
+        console.log(`[ConvertToProject] Awarded submissions: ${awardedSubs.length}`);
         awardedSubs.forEach(sub => {
-          team.push({ full_name: sub.full_name, user_email: sub.email || '', role: 'Subcontractor', business_name: sub.business_name || '', phone: sub.phone || '', trade: sub.trade || '' });
+          team.push({
+            full_name:     sub.full_name || sub.invitee_name || '',
+            user_email:    sub.invitee_email || '',
+            role:          'Subcontractor',
+            business_name: sub.business_name || '',
+            phone:         sub.phone || '',
+            trade:         sub.trade || '',
+          });
         });
+        console.log(`[ConvertToProject] Subcontractors transferred to project team: ${awardedSubs.length}`);
       }
 
       // Build project data
@@ -164,8 +181,8 @@ export default function ConvertToProjectModal({ tender, open, onOpenChange }) {
               <Checkbox checked={includeSubs} onCheckedChange={setIncludeSubs} id="inc-subs" disabled={awardedSubs.length === 0} />
               <Label htmlFor="inc-subs" className="text-sm font-normal cursor-pointer">
                 Awarded subcontractors → Project team
-                {awardedSubs.length === 0 && <span className="text-muted-foreground ml-1">(none awarded)</span>}
-                {awardedSubs.length > 0 && <span className="text-muted-foreground ml-1">({awardedSubs.length} sub{awardedSubs.length !== 1 ? 's' : ''})</span>}
+                {awardedSubs.length === 0 && <span className="text-muted-foreground ml-1">(none with outcome = Awarded)</span>}
+                {awardedSubs.length > 0 && <span className="text-muted-foreground ml-1">({awardedSubs.length} sub{awardedSubs.length !== 1 ? 's' : ''} from submissions)</span>}
               </Label>
             </div>
 
