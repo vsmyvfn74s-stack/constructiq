@@ -28,17 +28,25 @@ function roleColour(role) {
 
 // Shared user card layout
 function UserRow({ u, actions }) {
-  const displayName = u.full_name || u.email;
-  const company = u.data?.company_name || u.company_name || '';
+  const firstName = u.data?.first_name || '';
+  const lastName = u.data?.last_name || '';
+  const fullName = [firstName, lastName].filter(Boolean).join(' ') || '—';
+  const company = u.data?.business_name || '—';
+  const phone = u.data?.phone || '—';
   const role = u.role || 'external';
 
   return (
     <div className="flex items-center justify-between p-3 rounded-lg bg-muted/50 gap-3">
       <div className="min-w-0 flex-1">
-        <p className="text-sm font-medium truncate">{displayName}</p>
-        {company && <p className="text-xs text-muted-foreground truncate">{company}</p>}
-        <p className="text-xs text-muted-foreground truncate">{u.email}</p>
-        <Badge variant="outline" className={`text-xs mt-1 ${roleColour(role)}`}>{role}</Badge>
+        <div className="grid grid-cols-2 gap-x-6 mb-0.5">
+          <p className="text-sm font-medium truncate">{fullName}</p>
+          <p className="text-sm text-muted-foreground truncate">{company}</p>
+        </div>
+        <div className="grid grid-cols-2 gap-x-6">
+          <p className="text-xs text-muted-foreground truncate">{u.email}</p>
+          <p className="text-xs text-muted-foreground truncate">{phone}</p>
+        </div>
+        <Badge variant="outline" className={`text-xs mt-1.5 ${roleColour(role)}`}>{role}</Badge>
       </div>
       {actions && <div className="flex items-center gap-2 flex-shrink-0">{actions}</div>}
     </div>
