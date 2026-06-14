@@ -101,11 +101,13 @@ Deno.serve(async (req) => {
     const user = await base44.auth.me();
     if (!user) return Response.json({ error: 'Unauthorized' }, { status: 401 });
 
+    const allowed = ['admin', 'internal', 'pricing'].includes(user.role);
+    if (!allowed) return Response.json({ error: 'Forbidden' }, { status: 403 });
+
     const body = await req.json();
     const { action } = body;
 
     // ── ACTION: detect ─────────────────────────────────────────────────────
-    // Public-ish: called from Register page — only requires a valid session (any role).
     // Returns { status: 'existing_user'|'pending'|'new', invitedUser?, user? }
     if (action === 'detect') {
       const { email } = body;
@@ -129,10 +131,6 @@ Deno.serve(async (req) => {
 
       return Response.json({ status: 'new' });
     }
-
-    // All other actions require admin/internal/pricing
-    const allowed = ['admin', 'internal', 'pricing'].includes(user.role);
-    if (!allowed) return Response.json({ error: 'Forbidden' }, { status: 403 });
 
     // ── ACTION: invite ─────────────────────────────────────────────────────
     // Creates or reuses InvitedUser, creates PendingProjectAssignment, sends email

@@ -77,35 +77,32 @@ export const AuthProvider = ({ children }) => {
 
   const checkUserAuth = async () => {
     try {
+      // Now check if the user is authenticated
       setIsLoadingAuth(true);
       const currentUser = await base44.auth.me();
-
-      // Guard: if profile is missing or has no id, the account no longer exists
-      if (!currentUser || !currentUser.id) {
-        console.warn('[AuthContext] User profile missing — account may have been deleted. Logging out.');
-        setUser(null);
-        setIsAuthenticated(false);
-        setIsLoadingAuth(false);
-        setAuthChecked(true);
-        setAuthError({ type: 'account_deleted', message: 'Your account is no longer available. Please contact an administrator.' });
-        base44.auth.logout();
-        return;
-      }
-
       setUser(currentUser);
       setIsAuthenticated(true);
       setIsLoadingAuth(false);
       setAuthChecked(true);
-      // NOTE: processPendingAssignments disabled during stabilisation phase
-      // Re-enable once registration flow is confirmed stable.
+      // Login-triggered sync: activate any pending project assignments
+      try {
+        await base44.functions.invoke('processPendingAssignments', {});
+      } catch (e) {
+        // Non-critical — log and continue
+        console.warn('[AuthContext] processPendingAssignments failed:', e?.message);
+      }
     } catch (error) {
       console.error('User auth check failed:', error);
       setIsLoadingAuth(false);
       setIsAuthenticated(false);
       setAuthChecked(true);
-
+      
+      // If user auth fails, it might be an expired token
       if (error.status === 401 || error.status === 403) {
-        setAuthError({ type: 'auth_required', message: 'Authentication required' });
+        setAuthError({
+          type: 'auth_required',
+          message: 'Authentication required'
+        });
       }
     }
   };

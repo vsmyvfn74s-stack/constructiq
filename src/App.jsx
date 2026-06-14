@@ -61,19 +61,6 @@ const AuthenticatedApp = () => {
   if (authError) {
     if (authError.type === 'user_not_registered') {
       return <UserNotRegisteredError />;
-    } else if (authError.type === 'account_deleted') {
-      return (
-        <div className="fixed inset-0 flex items-center justify-center bg-background">
-          <div className="max-w-sm mx-auto text-center p-6 rounded-xl border bg-card shadow">
-            <div className="w-12 h-12 rounded-full bg-destructive/10 flex items-center justify-center mx-auto mb-4">
-              <span className="text-destructive text-2xl font-bold">✕</span>
-            </div>
-            <h2 className="text-lg font-semibold mb-2">Account Unavailable</h2>
-            <p className="text-sm text-muted-foreground mb-4">Your account is no longer available. Please contact an administrator.</p>
-            <a href="/login" className="inline-block text-sm text-primary font-medium hover:underline">Back to Login</a>
-          </div>
-        </div>
-      );
     } else if (authError.type === 'auth_required') {
       navigateToLogin();
       return null;
