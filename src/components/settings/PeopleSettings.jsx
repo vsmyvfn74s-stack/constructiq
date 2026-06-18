@@ -28,19 +28,19 @@ function roleColour(role) {
 
 // Shared user card layout
 function UserRow({ u, actions }) {
-  const fullName = `${u.data?.first_name || ''} ${u.data?.last_name || ''}`.trim() || '—';
-  const company = u.data?.business_name || '—';
-  const phone = u.data?.phone || '—';
+  const firstName = u?.data?.first_name ?? '';
+  const lastName = u?.data?.last_name ?? '';
+  const fullName = `${firstName} ${lastName}`.trim() || '—';
+  const company = String(u?.data?.business_name ?? '').trim() || '—';
+  const phone = String(u?.data?.phone ?? '').trim() || '—';
   const role = u.role || 'external';
 
   return (
     <div className="flex items-center justify-between p-3 rounded-lg bg-muted/50 gap-3">
       <div className="min-w-0 flex-1">
-        <div className="grid grid-cols-2 gap-x-6 mb-0.5">
+        <div className="grid grid-cols-2 gap-x-6 gap-y-1">
           <p className="text-sm font-medium truncate">{fullName}</p>
           <p className="text-sm text-muted-foreground truncate">{company}</p>
-        </div>
-        <div className="grid grid-cols-2 gap-x-6">
           <p className="text-xs text-muted-foreground truncate">{u.email}</p>
           <p className="text-xs text-muted-foreground truncate">{phone}</p>
         </div>
