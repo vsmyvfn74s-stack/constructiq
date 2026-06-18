@@ -28,7 +28,7 @@ function roleColour(role) {
 
 // Shared user card layout
 function UserRow({ u, actions }) {
-  const fullName = [u.data?.first_name, u.data?.last_name].filter(Boolean).join(' ') || '—';
+  const fullName = `${u.data?.first_name || ''} ${u.data?.last_name || ''}`.trim() || '—';
   const company = u.data?.business_name || '—';
   const phone = u.data?.phone || '—';
   const role = u.role || 'external';
