@@ -9,7 +9,6 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Switch } from '@/components/ui/switch';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
 import { Save, Shield, Bell, Mail, Palette, Tag, RefreshCw, Trash2, FolderOpen, FileSignature, Users, FlaskConical } from 'lucide-react';
 import { useToast } from '@/components/ui/use-toast';
@@ -26,10 +25,6 @@ import TenderSettingsPanel from '@/components/settings/TenderSettingsPanel';
 import PeopleSettings from '@/components/settings/PeopleSettings';
 import TestUtilities from '@/components/settings/TestUtilities';
 
-const ROLES = [
-  'Architect', 'Client', 'External Project Manager',
-  'Internal Project Manager', 'Site Manager', 'Quantity Surveyor', 'Subcontractor'
-];
 
 export default function Settings() {
   const { user } = useAuth();
@@ -38,7 +33,7 @@ export default function Settings() {
 
   const [profile, setProfile] = useState({
     first_name: '', last_name: '', phone: '', business_name: '',
-    construction_role: '', notify_rfis: true, notify_documents: true,
+    notify_rfis: true, notify_documents: true,
   });
 
   const [editingTemplate, setEditingTemplate] = useState(null);
@@ -63,7 +58,6 @@ export default function Settings() {
         last_name: user.last_name || '',
         phone: user.phone || '',
         business_name: user.business_name || '',
-        construction_role: user.construction_role || '',
         notify_rfis: user.notify_rfis !== false,
         notify_documents: user.notify_documents !== false,
       });
@@ -232,19 +226,15 @@ export default function Settings() {
                   <Label>Organisation</Label>
                   <Input value={profile.business_name} onChange={e => setProfile({...profile, business_name: e.target.value})} placeholder="Your company" />
                 </div>
-                <div>
-                  <Label>Role</Label>
-                  <Select value={profile.construction_role} onValueChange={v => setProfile({...profile, construction_role: v})}>
-                    <SelectTrigger><SelectValue placeholder="Select your role" /></SelectTrigger>
-                    <SelectContent>
-                      {ROLES.map(r => <SelectItem key={r} value={r}>{r}</SelectItem>)}
-                    </SelectContent>
-                  </Select>
-                </div>
               </div>
-              <div>
-                <Label>Platform Role</Label>
-                <div className="mt-1"><Badge variant="outline">{user?.role || 'external'}</Badge></div>
+              <div className="rounded-lg border border-border bg-muted/30 px-4 py-3 space-y-2">
+                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Role Information</p>
+                <div className="grid grid-cols-2 gap-x-6 gap-y-1 text-sm">
+                  <span className="text-muted-foreground">Project Role</span>
+                  <span className="font-medium">{user?.construction_role || '—'}</span>
+                  <span className="text-muted-foreground">Permission Role</span>
+                  <span className="font-medium">{user?.role || '—'}</span>
+                </div>
               </div>
               <Button onClick={() => profileMutation.mutate(profile)} disabled={profileMutation.isPending} className="gap-2">
                 <Save className="w-4 h-4" />
