@@ -1,6 +1,7 @@
 import React, { createContext, useState, useContext, useEffect } from 'react';
 import { base44 } from '@/api/base44Client';
 import { appParams } from '@/lib/app-params';
+import { clearClientAuthState } from '@/lib/clientAuth';
 import axios from 'axios';
 
 const AuthContext = createContext();
@@ -103,16 +104,13 @@ export const AuthProvider = ({ children }) => {
       }
     } catch (error) {
       console.error('User auth check failed:', error);
+      // Auth token exists but me() failed — stale/corrupt token; clear client state
+      clearClientAuthState();
       setIsLoadingAuth(false);
       setIsAuthenticated(false);
       setAuthChecked(true);
-      
-      // If user auth fails, it might be an expired token
       if (error.status === 401 || error.status === 403) {
-        setAuthError({
-          type: 'auth_required',
-          message: 'Authentication required'
-        });
+        setAuthError({ type: 'auth_required', message: 'Authentication required' });
       }
     }
   };
@@ -120,12 +118,11 @@ export const AuthProvider = ({ children }) => {
   const logout = (shouldRedirect = true) => {
     setUser(null);
     setIsAuthenticated(false);
-    
+    // Clear all client-side auth/onboarding cache before redirecting
+    clearClientAuthState();
     if (shouldRedirect) {
-      // Use the SDK's logout method which handles token cleanup and redirect
       base44.auth.logout(window.location.href);
     } else {
-      // Just remove the token without redirect
       base44.auth.logout();
     }
   };

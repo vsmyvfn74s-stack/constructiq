@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
 import { base44 } from "@/api/base44Client";
+import { clearClientAuthState } from "@/lib/clientAuth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -23,6 +24,13 @@ export default function Register() {
   const [loading, setLoading] = useState(false);
   const [showOtp, setShowOtp] = useState(false);
   const [otpCode, setOtpCode] = useState("");
+
+  // Clear any stale client auth/onboarding state when the Register page loads.
+  // This prevents registration loops in normal browsers where previous session
+  // data persists and conflicts with a fresh onboarding attempt.
+  useEffect(() => {
+    clearClientAuthState();
+  }, []);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
