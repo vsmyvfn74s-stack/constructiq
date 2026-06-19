@@ -35,7 +35,7 @@ const TendersRoute = ({ children }) => {
 };
 
 const AuthenticatedApp = () => {
-  const { isLoadingAuth, isLoadingPublicSettings, authError, navigateToLogin } = useAuth();
+  const { isLoadingAuth, isLoadingPublicSettings, isSettingUpWorkspace, authError, navigateToLogin } = useAuth();
   const location = useLocation();
 
   // Public routes — bypass all auth checks entirely
@@ -48,12 +48,13 @@ const AuthenticatedApp = () => {
     );
   }
 
-  if (isLoadingPublicSettings || isLoadingAuth) {
+  if (isLoadingPublicSettings || isLoadingAuth || isSettingUpWorkspace) {
+    const message = isSettingUpWorkspace ? 'Setting up your workspace...' : 'Loading ConstructIQ...';
     return (
       <div className="fixed inset-0 flex items-center justify-center bg-background">
         <div className="flex flex-col items-center gap-3">
           <div className="w-10 h-10 border-4 border-muted border-t-primary rounded-full animate-spin"></div>
-          <span className="text-sm text-muted-foreground font-medium">Loading ConstructIQ...</span>
+          <span className="text-sm text-muted-foreground font-medium">{message}</span>
         </div>
       </div>
     );

@@ -2,6 +2,7 @@ import React, { createContext, useState, useContext, useEffect } from 'react';
 import { base44 } from '@/api/base44Client';
 import { appParams } from '@/lib/app-params';
 import { clearClientAuthState } from '@/lib/clientAuth';
+import { queryClientInstance } from '@/lib/query-client';
 import axios from 'axios';
 
 const AuthContext = createContext();
@@ -13,6 +14,7 @@ export const AuthProvider = ({ children }) => {
   const [isLoadingPublicSettings, setIsLoadingPublicSettings] = useState(true);
   const [authError, setAuthError] = useState(null);
   const [authChecked, setAuthChecked] = useState(false);
+  const [isSettingUpWorkspace, setIsSettingUpWorkspace] = useState(false);
   const [appPublicSettings, setAppPublicSettings] = useState(null); // Contains only { id, public_settings }
 
   useEffect(() => {
@@ -103,12 +105,29 @@ export const AuthProvider = ({ children }) => {
       setIsAuthenticated(true);
       setIsLoadingAuth(false);
       setAuthChecked(true);
+
       // Login-triggered sync: activate any pending project assignments
       try {
-        await base44.functions.invoke('processPendingAssignments', {});
+        setIsSettingUpWorkspace(true);
+        const syncResult = await base44.functions.invoke('processPendingAssignments', {});
+        const { activated, roleAssigned } = syncResult?.data || {};
+
+        if (activated > 0) {
+          // Role/membership was updated server-side — re-fetch user to get fresh role
+          const refreshedUser = await base44.auth.me();
+          setUser(refreshedUser);
+          // Invalidate any cached entity queries so project/permission data reloads
+          queryClientInstance.invalidateQueries({ queryKey: ['users'] });
+          queryClientInstance.invalidateQueries({ queryKey: ['projects'] });
+          queryClientInstance.invalidateQueries({ queryKey: ['permissions'] });
+          queryClientInstance.invalidateQueries({ queryKey: ['currentUser'] });
+          console.info('AUTH CONTEXT REFRESHED', { roleAssigned, activated });
+        }
       } catch (e) {
         // Non-critical — log and continue
         console.warn('[AuthContext] processPendingAssignments failed:', e?.message);
+      } finally {
+        setIsSettingUpWorkspace(false);
       }
     } catch (error) {
       console.error('User auth check failed:', error);
@@ -147,6 +166,7 @@ export const AuthProvider = ({ children }) => {
       isAuthenticated, 
       isLoadingAuth,
       isLoadingPublicSettings,
+      isSettingUpWorkspace,
       authError,
       appPublicSettings,
       authChecked,

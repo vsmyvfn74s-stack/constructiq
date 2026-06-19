@@ -42,8 +42,10 @@ Deno.serve(async (req) => {
     });
 
     if (assignments.length === 0) {
-      return Response.json({ activated: 0, skipped: 0 });
+      return Response.json({ activated: 0, skipped: 0, roleAssigned: null });
     }
+
+    console.info('INVITATION ACTIVATION STARTED', { email, count: assignments.length });
 
     let activated = 0;
     let skipped = 0;
@@ -72,6 +74,7 @@ Deno.serve(async (req) => {
             trade: assignment.trade || '',
           });
           await base44.asServiceRole.entities.Project.update(project.id, { team });
+          console.info('PROJECT MEMBERSHIP CREATED', { email, projectId: project.id, projectName: project.name, role: assignment.role });
         }
 
         await base44.asServiceRole.entities.PendingProjectAssignment.update(assignment.id, {
@@ -124,7 +127,7 @@ Deno.serve(async (req) => {
         const isAdmin = currentRole === 'admin';
 
         // Never downgrade admins; never overwrite an already-set permission role
-        const shouldSetRole = !isAdmin && (!currentRole || currentRole === 'user' || currentRole === '');
+        const shouldSetRole = !isAdmin && (!currentRole || currentRole === 'user' || currentRole === 'external' || currentRole === '');
 
         const profileUpdate = {};
 
@@ -162,6 +165,9 @@ Deno.serve(async (req) => {
 
         if (Object.keys(profileUpdate).length > 0) {
           await base44.asServiceRole.entities.User.update(user.id, profileUpdate);
+          if (shouldSetRole) {
+            console.info(`ROLE ASSIGNED: ${permissionRole}`, { email, userId: user.id });
+          }
         }
 
         await base44.asServiceRole.entities.InvitedUser.update(pendingInvite.id, { status: 'Accepted' });
@@ -193,7 +199,19 @@ Deno.serve(async (req) => {
       }
     }
 
-    return Response.json({ activated, skipped });
+    const finalRole = activated > 0 ? (
+      (() => {
+        const inv = assignments[0];
+        const raw = (inv?.permission_role || '').toLowerCase().trim();
+        return VALID_APP_ROLES.includes(raw) ? raw : null;
+      })()
+    ) : null;
+
+    if (activated > 0) {
+      console.info('USER SETUP COMPLETE', { email, activated, skipped, roleAssigned: finalRole });
+    }
+
+    return Response.json({ activated, skipped, roleAssigned: finalRole });
 
   } catch (error) {
     console.error('[processPendingAssignments] ERROR:', error?.message, error?.stack);
