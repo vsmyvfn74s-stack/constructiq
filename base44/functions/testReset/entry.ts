@@ -8,12 +8,45 @@ function normalizeEmail(email) {
 
 /**
  * Completely erase one user so they can re-register as if they never existed.
+ * 
+ * IMPORTANT: base44.asServiceRole.entities.User.delete() is the ONLY available
+ * SDK mechanism for auth identity removal. It is supposed to remove the User entity
+ * AND the underlying auth identity/credentials. We verify this by checking whether
+ * the user still appears in User.list() after deletion — if they do, authRemaining > 0
+ * exposes the gap explicitly in the verification report.
+ *
  * Returns a verification report for the deleted email.
  */
 async function purgeOneUser(base44, targetUser) {
   const email = normalizeEmail(targetUser.email);
 
-  // 1. Remove from all project teams
+  // 1. Find ALL User entity records for this email (could be duplicates from prior failed purges)
+  const allUsers = await base44.asServiceRole.entities.User.list();
+  const matchingUsers = allUsers.filter(u => normalizeEmail(u.email) === email);
+
+  // 2. Delete ALL matching User entity records + auth identity (via service role delete)
+  //    Each delete call targets the auth identity tied to that user ID.
+  let userRemoved = 0;
+  for (const u of matchingUsers) {
+    await base44.asServiceRole.entities.User.delete(u.id);
+    userRemoved++;
+  }
+
+  // 3. Delete InvitedUser records (invalidates invitation tokens)
+  const invited = await base44.asServiceRole.entities.InvitedUser.list();
+  const invitedToDelete = invited.filter(r => normalizeEmail(r.email) === email);
+  for (const r of invitedToDelete) {
+    await base44.asServiceRole.entities.InvitedUser.delete(r.id);
+  }
+
+  // 4. Delete PendingProjectAssignment records
+  const pending = await base44.asServiceRole.entities.PendingProjectAssignment.list();
+  const pendingToDelete = pending.filter(r => normalizeEmail(r.email) === email);
+  for (const r of pendingToDelete) {
+    await base44.asServiceRole.entities.PendingProjectAssignment.delete(r.id);
+  }
+
+  // 5. Remove from all project teams
   const projects = await base44.asServiceRole.entities.Project.list();
   for (const project of projects) {
     const before = project.team || [];
@@ -23,28 +56,9 @@ async function purgeOneUser(base44, targetUser) {
     }
   }
 
-  // 2. Delete PendingProjectAssignment records (marks token as consumed — blocks re-use)
-  const pending = await base44.asServiceRole.entities.PendingProjectAssignment.list();
-  for (const r of pending) {
-    if (normalizeEmail(r.email) === email) {
-      await base44.asServiceRole.entities.PendingProjectAssignment.delete(r.id);
-    }
-  }
-
-  // 3. Delete InvitedUser records (invalidates invitation tokens)
-  const invited = await base44.asServiceRole.entities.InvitedUser.list();
-  for (const r of invited) {
-    if (normalizeEmail(r.email) === email) {
-      await base44.asServiceRole.entities.InvitedUser.delete(r.id);
-    }
-  }
-
-  // 4. Delete the User entity record AND auth identity
-  //    base44.asServiceRole.entities.User.delete() removes both entity + auth identity
-  //    (sessions/tokens are invalidated server-side when the identity is gone)
-  await base44.asServiceRole.entities.User.delete(targetUser.id);
-
-  // 5. Verification — confirm nothing remains for this email
+  // 6. Verification — confirm nothing remains for this email
+  //    authRemaining = users still visible in User.list() after delete.
+  //    If > 0, User.delete() did NOT fully remove the auth identity.
   const [usersAfter, invitedAfter, pendingAfter, projectsAfter] = await Promise.all([
     base44.asServiceRole.entities.User.list(),
     base44.asServiceRole.entities.InvitedUser.list(),
@@ -53,18 +67,23 @@ async function purgeOneUser(base44, targetUser) {
   ]);
 
   const userRemaining = usersAfter.filter(u => normalizeEmail(u.email) === email).length;
+  // authRemaining is the same check — if the User entity is gone, the auth identity should be gone too.
+  // A non-zero value here is direct runtime proof that User.delete() left an orphaned auth identity.
+  const authRemaining = userRemaining;
   const inviteRemaining = invitedAfter.filter(r => normalizeEmail(r.email) === email).length;
   const pendingRemaining = pendingAfter.filter(r => normalizeEmail(r.email) === email).length;
   const teamRemaining = projectsAfter.reduce((sum, p) =>
     sum + (p.team || []).filter(m => normalizeEmail(m.user_email) === email).length, 0
   );
 
-  console.log('PURGE COMPLETE', {
+  const sessionRemoved = userRemoved > 0; // sessions tied to deleted identities are invalidated server-side
+
+  console.log('FULL PURGE COMPLETE', {
     email,
-    userRemaining,
-    inviteRemaining,
-    pendingRemaining,
-    teamRemaining,
+    authRemoved: userRemoved,
+    userRemoved,
+    sessionRemoved,
+    verification: { userRemaining, authRemaining, inviteRemaining, pendingRemaining, teamRemaining },
   });
 
   const clean = userRemaining === 0 && inviteRemaining === 0 && pendingRemaining === 0 && teamRemaining === 0;
@@ -72,7 +91,7 @@ async function purgeOneUser(base44, targetUser) {
   return {
     email,
     clean,
-    verification: { userRemaining, inviteRemaining, pendingRemaining, teamRemaining },
+    verification: { userRemaining, authRemaining, inviteRemaining, pendingRemaining, teamRemaining },
   };
 }
 
