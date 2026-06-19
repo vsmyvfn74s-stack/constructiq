@@ -24,6 +24,24 @@ function normalizeEmail(email) {
 // Valid permission roles — only these may ever be written to User.role
 const VALID_APP_ROLES = ['admin', 'internal', 'pricing', 'external'];
 
+// Look up the system permission role for a named project role via the ProjectRole entity.
+// Falls back to 'external' if no matching record found.
+async function getSystemRoleFromDb(base44, projectRoleName) {
+  if (!projectRoleName) return 'external';
+  try {
+    const records = await base44.asServiceRole.entities.ProjectRole.list();
+    const match = records.find(r =>
+      r.name?.toLowerCase().trim() === projectRoleName.toLowerCase().trim()
+    );
+    if (match && VALID_APP_ROLES.includes(match.permission_role)) {
+      return match.permission_role;
+    }
+  } catch (e) {
+    console.warn('[processPendingAssignments] ProjectRole lookup failed, falling back to external:', e.message);
+  }
+  return 'external';
+}
+
 Deno.serve(async (req) => {
   try {
     const base44 = createClientFromRequest(req);
@@ -107,12 +125,18 @@ Deno.serve(async (req) => {
       const inviteRecords = await base44.asServiceRole.entities.InvitedUser.filter({ email });
       const pendingInvite = inviteRecords.find(i => i.status === 'Pending');
       if (pendingInvite) {
-        // Sanitize permission role — project roles (e.g. Architect, Client) must never
-        // be written to User.role. Fall back to 'external' for any unrecognised value.
+        // Derive permission role:
+        //  1. If app_role is already a valid system role, use it directly.
+        //  2. Otherwise look up the project_role name in the ProjectRole entity.
+        //  3. Fall back to 'external' if the lookup fails.
         const rawRole = (pendingInvite.app_role || '').toLowerCase().trim();
-        const permissionRole = VALID_APP_ROLES.includes(rawRole) ? rawRole : 'external';
-        if (permissionRole !== rawRole) {
-          console.warn(`[processPendingAssignments] Invalid app_role "${pendingInvite.app_role}" — defaulting to external`);
+        let permissionRole;
+        if (VALID_APP_ROLES.includes(rawRole)) {
+          permissionRole = rawRole;
+        } else {
+          const projectRoleName = pendingInvite.project_role || assignments[0]?.role || '';
+          permissionRole = await getSystemRoleFromDb(base44, projectRoleName);
+          console.info(`[processPendingAssignments] Resolved project role "${projectRoleName}" → "${permissionRole}" via ProjectRole entity`);
         }
 
         // ── Profile initialization (first registration only) ──────────────────

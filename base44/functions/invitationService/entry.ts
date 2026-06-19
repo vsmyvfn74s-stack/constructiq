@@ -34,6 +34,24 @@ function toPermissionRole(role) {
   return VALID_APP_ROLES.includes(r) ? r : 'external';
 }
 
+// Look up the system permission role for a named project role via the ProjectRole entity.
+// Falls back to 'external' if no matching record found.
+async function getSystemRoleFromDb(base44, projectRoleName) {
+  if (!projectRoleName) return 'external';
+  try {
+    const records = await base44.asServiceRole.entities.ProjectRole.list();
+    const match = records.find(r =>
+      r.name?.toLowerCase().trim() === projectRoleName.toLowerCase().trim()
+    );
+    if (match && VALID_APP_ROLES.includes(match.permission_role)) {
+      return match.permission_role;
+    }
+  } catch (e) {
+    console.warn('[invitationService] ProjectRole lookup failed, falling back to external:', e.message);
+  }
+  return 'external';
+}
+
 function generateToken() {
   return crypto.randomUUID();
 }
@@ -154,9 +172,11 @@ Deno.serve(async (req) => {
         return Response.json({ error: 'email, projectId, role required' }, { status: 400 });
       }
 
-      // Derive the permission role: use explicit appRole if provided and valid,
-      // otherwise default to 'external' (project participant roles never map to User.role)
-      const permissionRole = toPermissionRole(appRole || 'external');
+      // Derive the permission role: if an explicit valid appRole is provided use it,
+      // otherwise look up the project role name in the ProjectRole entity, falling back to 'external'.
+      const permissionRole = VALID_APP_ROLES.includes((appRole || '').toLowerCase().trim())
+        ? toPermissionRole(appRole)
+        : await getSystemRoleFromDb(base44, projectRole || role);
 
       const normalEmail = normalizeEmail(email);
       const now = new Date().toISOString();
