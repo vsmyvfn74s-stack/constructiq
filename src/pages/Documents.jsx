@@ -1,4 +1,6 @@
+import { uploadFile } from '@/api/supabaseClient';
 import React, { useState } from 'react';
+import { Document, Project } from '@/api/entities';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useToast } from '@/components/ui/use-toast';
 import { base44 } from '@/api/base44Client';
@@ -42,12 +44,12 @@ export default function Documents() {
 
   const { data: allDocuments = [], isLoading } = useQuery({
     queryKey: ['documents'],
-    queryFn: () => base44.entities.Document.list('-created_date', 200),
+    queryFn: () => Document.list('-created_date', 200),
   });
 
   const { data: allProjects = [] } = useQuery({
     queryKey: ['projects'],
-    queryFn: () => base44.entities.Project.list('-created_date', 100),
+    queryFn: () => Project.list('-created_date', 100),
   });
 
   const projects = isAdmin
@@ -59,10 +61,10 @@ export default function Documents() {
 
   const statusMutation = useMutation({
     mutationFn: ({ id, status, ownerEmail }) => {
-      const promise = base44.entities.Document.update(id, { status });
+      const promise = Document.update(id, { status });
       // Send email notification on status change
       if (ownerEmail) {
-        base44.integrations.Core.SendEmail({
+        sendEmail({
           to: ownerEmail,
           subject: `Document status changed to ${status}`,
           body: `A document you uploaded has been updated to status: ${status}.`
@@ -80,8 +82,8 @@ export default function Documents() {
       const folder = uploadForm.folder === '__new__'
         ? newFolder.trim()
         : (uploadForm.folder || undefined);
-      const { file_url } = await base44.integrations.Core.UploadFile({ file: uploadForm.file });
-      await base44.entities.Document.create({
+      const { file_url } = await uploadFile(uploadForm.file );
+      await Document.create({
         name: uploadForm.name,
         project_id: uploadForm.project_id,
         folder: folder || undefined,

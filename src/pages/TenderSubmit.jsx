@@ -1,3 +1,4 @@
+import { supabase, invokeFunction } from '@/api/supabaseClient';
 import React, { useState, useEffect } from 'react';
 import { useParams } from 'react-router-dom';
 import { base44 } from '@/api/base44Client';
@@ -30,7 +31,7 @@ export default function TenderSubmit() {
 
   useEffect(() => {
     if (!token) { setError('Invalid link'); setLoading(false); return; }
-    base44.functions.invoke('tenderPublicApi', { action: 'get', token })
+    invokeFunction('tenderPublicApi', { action: 'get', token })
       .then(res => {
         setTender(res.data.tender);
         setInvitee(res.data.invitee);
@@ -57,7 +58,7 @@ export default function TenderSubmit() {
         reader.onerror = reject;
         reader.readAsDataURL(file);
       });
-      const res = await base44.functions.invoke('tenderPublicApi', {
+      const res = await invokeFunction('tenderPublicApi', {
         action: 'upload',
         token,
         fileName: file.name,
@@ -77,7 +78,7 @@ export default function TenderSubmit() {
     setSubmitting(true);
     setSubmitError('');
     try {
-      await base44.functions.invoke('tenderPublicApi', {
+      await invokeFunction('tenderPublicApi', {
         action: 'submit',
         token,
         submission: {

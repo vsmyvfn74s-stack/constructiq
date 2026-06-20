@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { Project, Task } from '@/api/entities';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { base44 } from '@/api/base44Client';
 import { useAuth } from '@/lib/AuthContext';
@@ -31,12 +32,12 @@ export default function Projects() {
 
   const { data: allProjects = [], isLoading } = useQuery({
     queryKey: ['projects'],
-    queryFn: () => base44.entities.Project.list('-created_date', 100),
+    queryFn: () => Project.list('-created_date', 100),
   });
 
   const { data: allTasks = [] } = useQuery({
     queryKey: ['tasks'],
-    queryFn: () => base44.entities.Task.list('-created_date', 1000),
+    queryFn: () => Task.list('-created_date', 1000),
   });
 
   const projects = isAdminUser
@@ -56,7 +57,7 @@ export default function Projects() {
   });
 
   const deleteMutation = useMutation({
-    mutationFn: (id) => base44.entities.Project.delete(id),
+    mutationFn: (id) => Project.delete(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['projects'] });
       setDeleteProjectId(null);

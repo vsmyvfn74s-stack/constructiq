@@ -1,4 +1,6 @@
+import { supabase } from '@/api/supabaseClient';
 import React, { useState, useEffect } from 'react';
+import { EmailBranding, EmailTemplate, User } from '@/api/entities';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { base44 } from '@/api/base44Client';
 import { useAuth } from '@/lib/AuthContext';
@@ -42,13 +44,13 @@ export default function Settings() {
 
   const { data: users = [] } = useQuery({
     queryKey: ['users'],
-    queryFn: () => base44.entities.User.list(),
+    queryFn: () => User.list(),
     enabled: user?.role === 'admin',
   });
 
   const { data: emailTemplates = [] } = useQuery({
     queryKey: ['emailTemplates'],
-    queryFn: () => base44.entities.EmailTemplate.list(),
+    queryFn: () => EmailTemplate.list(),
     enabled: user?.role === 'admin',
   });
 
@@ -66,7 +68,7 @@ export default function Settings() {
   }, [user]);
 
   const profileMutation = useMutation({
-    mutationFn: (data) => base44.auth.updateMe(data),
+    mutationFn: (data) => supabase.from('users').update(data).eq('id', (await supabase.auth.getUser()).data.user.id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['auth'] });
       toast({ title: 'Profile saved', duration: 4000 });
@@ -83,7 +85,7 @@ export default function Settings() {
 
   const { data: emailBrandingList = [] } = useQuery({
     queryKey: ['emailBranding'],
-    queryFn: () => base44.entities.EmailBranding.list(),
+    queryFn: () => EmailBranding.list(),
     enabled: user?.role === 'admin',
   });
   const emailBranding = emailBrandingList[0] || {};
@@ -92,9 +94,9 @@ export default function Settings() {
     mutationFn: async ({ key, subject, body_html, body_text }) => {
       const existing = emailTemplates.find(t => t.template_key === key);
       if (existing) {
-        return base44.entities.EmailTemplate.update(existing.id, { subject, body_html, body_text });
+        return EmailTemplate.update(existing.id, { subject, body_html, body_text });
       } else {
-        return base44.entities.EmailTemplate.create({
+        return EmailTemplate.create({
           template_key: key,
           name: DEFAULT_TEMPLATES[key]?.name || key,
           subject,
@@ -110,8 +112,8 @@ export default function Settings() {
 
   const deleteAccountMutation = useMutation({
     mutationFn: async () => {
-      await base44.entities.User.delete(user.id);
-      await base44.auth.logout();
+      await User.delete(user.id);
+      await supabase.auth.signOut();
     },
     onSuccess: () => { window.location.href = '/login'; },
     onError: (e) => {

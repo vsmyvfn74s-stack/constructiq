@@ -1,3 +1,4 @@
+import { supabase, uploadFile } from '@/api/supabaseClient';
 import React, { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { base44 } from '@/api/base44Client';
@@ -15,7 +16,7 @@ export default function AppearanceSettings({ user }) {
   const [uploading, setUploading] = useState(false);
 
   const saveMutation = useMutation({
-    mutationFn: (data) => base44.auth.updateMe(data),
+    mutationFn: (data) => supabase.from('users').update(data).eq('id', (await supabase.auth.getUser()).data.user.id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['auth'] });
     }
@@ -25,7 +26,7 @@ export default function AppearanceSettings({ user }) {
     const file = e.target.files?.[0];
     if (!file) return;
     setUploading(true);
-    const { file_url } = await base44.integrations.Core.UploadFile({ file });
+    const { file_url } = await uploadFile(file);
     setLogoUrl(file_url);
     setUploading(false);
   };

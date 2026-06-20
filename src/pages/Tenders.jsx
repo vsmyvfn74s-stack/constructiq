@@ -1,4 +1,6 @@
+import { invokeFunction } from '@/api/supabaseClient';
 import React, { useState } from 'react';
+import { Tender } from '@/api/entities';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { base44 } from '@/api/base44Client';
 import { useAuth } from '@/lib/AuthContext';
@@ -69,12 +71,12 @@ export default function Tenders() {
 
   const { data: tenders = [], isLoading } = useQuery({
     queryKey: ['tenders'],
-    queryFn: () => base44.entities.Tender.list('-created_date', 200),
+    queryFn: () => Tender.list('-created_date', 200),
   });
 
   const createMutation = useMutation({
     mutationFn: async () => {
-      const res = await base44.functions.invoke('createTender', {});
+      const res = await invokeFunction('createTender', {});
       if (res.data?.error) throw new Error(res.data.error);
       return res.data.tender;
     },

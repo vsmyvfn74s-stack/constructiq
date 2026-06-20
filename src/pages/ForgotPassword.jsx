@@ -1,3 +1,4 @@
+import { supabase } from '@/api/supabaseClient';
 import React, { useState } from "react";
 import { Link } from "react-router-dom";
 import { base44 } from "@/api/base44Client";
@@ -16,7 +17,7 @@ export default function ForgotPassword() {
     e.preventDefault();
     setLoading(true);
     try {
-      await base44.auth.resetPasswordRequest(email);
+      await supabase.auth.resetPasswordForEmail(email);
     } catch {
       // Always show success regardless
     } finally {

@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { TenderActivity } from '@/api/entities';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { base44 } from '@/api/base44Client';
 import { useAuth } from '@/lib/AuthContext';
@@ -33,7 +34,7 @@ export default function TenderActivityFeed({ tenderId }) {
 
   const { data: activities = [], isLoading } = useQuery({
     queryKey: ['tenderActivity', tenderId],
-    queryFn: () => base44.entities.TenderActivity.filter(
+    queryFn: () => TenderActivity.filter(
       { tender_id: tenderId },
       '-occurred_at',
       100
@@ -43,7 +44,7 @@ export default function TenderActivityFeed({ tenderId }) {
   });
 
   const addNoteMutation = useMutation({
-    mutationFn: () => base44.entities.TenderActivity.create({
+    mutationFn: () => TenderActivity.create({
       tender_id: tenderId,
       event_type: 'note_added',
       actor_name: user?.full_name || user?.email || 'Unknown',

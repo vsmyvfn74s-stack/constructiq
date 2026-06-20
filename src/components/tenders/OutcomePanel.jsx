@@ -1,3 +1,4 @@
+import { invokeFunction } from '@/api/supabaseClient';
 /**
  * OutcomePanel
  *
@@ -9,6 +10,7 @@
  * The frontend never sends individual emails.
  */
 import React, { useState, useEffect } from 'react';
+import { Project, TenderSubmission } from '@/api/entities';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { base44 } from '@/api/base44Client';
 import { useAuth } from '@/lib/AuthContext';
@@ -39,13 +41,13 @@ export default function OutcomePanel({ tender, onUpdate, onConvert, canManage })
 
   const { data: submissions = [], refetch: refetchSubmissions } = useQuery({
     queryKey: ['tenderSubmissions', tender.id],
-    queryFn:  () => base44.entities.TenderSubmission.filter({ tender_id: tender.id }),
+    queryFn:  () => TenderSubmission.filter({ tender_id: tender.id }),
     enabled:  !!tender.id,
   });
 
   const { data: convertedProject } = useQuery({
     queryKey: ['project', tender.converted_project_id],
-    queryFn:  () => base44.entities.Project.filter({ id: tender.converted_project_id }).then(r => r[0] ?? null),
+    queryFn:  () => Project.filter({ id: tender.converted_project_id }).then(r => r[0] ?? null),
     enabled:  !!tender.converted_project_id,
   });
 
@@ -91,7 +93,7 @@ export default function OutcomePanel({ tender, onUpdate, onConvert, canManage })
   const persistOutcomes = async () => {
     const updates = submissions
       .filter(s => subOutcomes[s.id])
-      .map(s => base44.entities.TenderSubmission.update(s.id, {
+      .map(s => TenderSubmission.update(s.id, {
         outcome:       subOutcomes[s.id],
         outcome_notes: subNotes[s.id] || '',
       }));
@@ -107,7 +109,7 @@ export default function OutcomePanel({ tender, onUpdate, onConvert, canManage })
       if (!retryFailedOnly) {
         await persistOutcomes();
       }
-      const res = await base44.functions.invoke('sendOutcomeNotifications', {
+      const res = await invokeFunction('sendOutcomeNotifications', {
         tenderId: tender.id,
         retryFailedOnly,
       });

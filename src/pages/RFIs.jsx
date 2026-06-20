@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { Project, RFI } from '@/api/entities';
 import { useQuery } from '@tanstack/react-query';
 import { base44 } from '@/api/base44Client';
 import { useAuth } from '@/lib/AuthContext';
@@ -60,12 +61,12 @@ export default function RFIs() {
 
   const { data: allRfis = [], isLoading } = useQuery({
     queryKey: ['rfis'],
-    queryFn: () => base44.entities.RFI.list('-created_date', 200),
+    queryFn: () => RFI.list('-created_date', 200),
   });
 
   const { data: allProjects = [] } = useQuery({
     queryKey: ['projects'],
-    queryFn: () => base44.entities.Project.list('-created_date', 100),
+    queryFn: () => Project.list('-created_date', 100),
   });
 
   const projects = isAdminUser

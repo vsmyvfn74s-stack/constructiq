@@ -1,3 +1,4 @@
+import { invokeFunction } from '@/api/supabaseClient';
 /**
  * InviteeManager
  *
@@ -8,6 +9,7 @@
  * v2: Actions column (Resend, Delete/Archive), Resend All Outstanding button.
  */
 import React, { useState, useRef } from 'react';
+import { TenderContact, TenderInvitee, TenderSubmission } from '@/api/entities';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { base44 } from '@/api/base44Client';
 import { Button } from '@/components/ui/button';
@@ -68,13 +70,13 @@ export default function InviteeManager({ tender, onUpdate, canManage }) {
   // ── Primary data: TenderInvitee ───────────────────────────────────────────
   const { data: invitees = [], refetch: refetchInvitees } = useQuery({
     queryKey: ['tenderInvitees', tender.id],
-    queryFn:  () => base44.entities.TenderInvitee.filter({ tender_id: tender.id }),
+    queryFn:  () => TenderInvitee.filter({ tender_id: tender.id }),
     enabled:  !!tender.id,
   });
 
   const { data: contacts = [] } = useQuery({
     queryKey: ['tenderContacts'],
-    queryFn:  () => base44.entities.TenderContact.list('-created_date', 500).catch(() => []),
+    queryFn:  () => TenderContact.list('-created_date', 500).catch(() => []),
   });
 
   const invalidateAll = () => {
@@ -143,7 +145,7 @@ export default function InviteeManager({ tender, onUpdate, canManage }) {
 
     setAdding(true);
     try {
-      const result = await base44.functions.invoke('manageTenderInvitee', {
+      const result = await invokeFunction('manageTenderInvitee', {
         action:       'create',
         tenderId:     tender.id,
         fullName:     full_name,
@@ -184,7 +186,7 @@ export default function InviteeManager({ tender, onUpdate, canManage }) {
     if (actionLoading[inv.id]) return;
     setActionLoading(s => ({ ...s, [inv.id]: 'resending' }));
     try {
-      await base44.functions.invoke('resendInvitation', { inviteeId: inv.id });
+      await invokeFunction('resendInvitation', { inviteeId: inv.id });
       toast({ title: `Invitation resent to ${inv.full_name}`, duration: 3000 });
       invalidateAll();
       await refetchInvitees();
@@ -206,7 +208,7 @@ export default function InviteeManager({ tender, onUpdate, canManage }) {
     let succeeded = 0, failed = 0;
     for (const inv of outstanding) {
       try {
-        await base44.functions.invoke('resendInvitation', { inviteeId: inv.id });
+        await invokeFunction('resendInvitation', { inviteeId: inv.id });
         succeeded++;
       } catch {
         failed++;
@@ -225,7 +227,7 @@ export default function InviteeManager({ tender, onUpdate, canManage }) {
   // ── Delete / Archive invitee ──────────────────────────────────────────────
   const handleDeleteInvitee = async (inv) => {
     // Check if a submission exists
-    const submissions = await base44.entities.TenderSubmission.filter({ invitee_id: inv.id }).catch(() => []);
+    const submissions = await TenderSubmission.filter({ invitee_id: inv.id }).catch(() => []);
     if (submissions.length > 0) {
       // Show archive confirmation
       setArchiveTarget(inv);
@@ -234,7 +236,7 @@ export default function InviteeManager({ tender, onUpdate, canManage }) {
     // Hard delete
     setActionLoading(s => ({ ...s, [inv.id]: 'deleting' }));
     try {
-      await base44.functions.invoke('manageTenderInvitee', { action: 'delete', inviteeId: inv.id });
+      await invokeFunction('manageTenderInvitee', { action: 'delete', inviteeId: inv.id });
       invalidateAll();
       await refetchInvitees();
       toast({ title: `${inv.full_name} removed`, duration: 2500 });
@@ -251,7 +253,7 @@ export default function InviteeManager({ tender, onUpdate, canManage }) {
     setArchiveTarget(null);
     setActionLoading(s => ({ ...s, [inv.id]: 'deleting' }));
     try {
-      await base44.entities.TenderInvitee.update(inv.id, { status: 'Archived' });
+      await TenderInvitee.update(inv.id, { status: 'Archived' });
       invalidateAll();
       await refetchInvitees();
       toast({ title: `${inv.full_name} archived`, duration: 2500 });
@@ -280,7 +282,7 @@ export default function InviteeManager({ tender, onUpdate, canManage }) {
         issue_date: tender.issue_date || new Date().toISOString().split('T')[0],
       });
 
-      const result = await base44.functions.invoke('sendTenderInvitations', {
+      const result = await invokeFunction('sendTenderInvitations', {
         tenderId: tender.id,
         tenderInfo: {
           title:                tender.title,

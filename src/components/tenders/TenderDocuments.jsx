@@ -1,3 +1,4 @@
+import { uploadFile } from '@/api/supabaseClient';
 /**
  * TenderDocuments – Production-grade document package uploader.
  *
@@ -203,7 +204,7 @@ export default function TenderDocuments({ tender, onUpdate, canManage }) {
     if (!uploadForm.file || !uploadForm.name) return;
     setSingleUploading(true);
     try {
-      const { file_url } = await base44.integrations.Core.UploadFile({ file: uploadForm.file });
+      const { file_url } = await uploadFile(uploadForm.file );
       const newDoc = {
         name:        uploadForm.name,
         file_url,

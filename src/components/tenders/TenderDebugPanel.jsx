@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { TenderInvitation } from '@/api/entities';
 import { useQuery } from '@tanstack/react-query';
 import { base44 } from '@/api/base44Client';
 import { useAuth } from '@/lib/AuthContext';
@@ -39,7 +40,7 @@ export default function TenderDebugPanel({ tender }) {
 function DebugPanelContent({ tender }) {
   const { data: invitations = [], isLoading, refetch, dataUpdatedAt } = useQuery({
     queryKey: ['debugInvitations', tender.id],
-    queryFn: () => base44.entities.TenderInvitation.filter({ tender_id: tender.id }),
+    queryFn: () => TenderInvitation.filter({ tender_id: tender.id }),
     refetchOnWindowFocus: false,
   });
 

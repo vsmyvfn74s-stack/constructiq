@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { Project, Task } from '@/api/entities';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { base44 } from '@/api/base44Client';
 import { useAuth } from '@/lib/AuthContext';
@@ -91,7 +92,7 @@ export default function Programme() {
   // ─── Data fetching ───────────────────────────────────────────────────────────
   const { data: allProjectsRaw = [], isLoading: isLoadingProjects } = useQuery({
     queryKey: ['projects'],
-    queryFn: () => base44.entities.Project.list('-created_date', 100),
+    queryFn: () => Project.list('-created_date', 100),
   });
 
   const projects = isAdmin
@@ -103,13 +104,13 @@ export default function Programme() {
   const { data: allTasks = [] } = useQuery({
     queryKey: ['tasks', selectedProjectId],
     queryFn: () => selectedProjectId === 'all'
-      ? base44.entities.Task.list('sort_order', 2000)
-      : base44.entities.Task.filter({ project_id: selectedProjectId }, 'sort_order', 2000),
+      ? Task.list('sort_order', 2000)
+      : Task.filter({ project_id: selectedProjectId }, 'sort_order', 2000),
     staleTime: 30000,
   });
 
   useEffect(() => {
-    const unsub = base44.entities.Task.subscribe(() => {
+    const unsub = Task.subscribe(() => {
       if (bulkOperationState.active) return;
       queryClient.invalidateQueries({ queryKey: ['tasks'] });
     });
@@ -203,7 +204,7 @@ export default function Programme() {
       const created = [];
       for (let i = 0; i < tasksToCreate.length; i += CREATE_BATCH) {
         const chunk = tasksToCreate.slice(i, i + CREATE_BATCH);
-        const result = await retry429(() => base44.entities.Task.bulkCreate(chunk));
+        const result = await retry429(() => Task.bulkCreate(chunk));
         created.push(...result);
         const pct = 30 + Math.round(((i + chunk.length) / tasksToCreate.length) * 25);
         setStage(2, pct, `${created.length} / ${tasksToCreate.length} tasks created`);
@@ -244,7 +245,7 @@ export default function Programme() {
       for (let i = 0; i < updates.length; i += DEP_BATCH) {
         const batch = updates.slice(i, i + DEP_BATCH);
         await Promise.all(batch.map(({ id, ...payload }) =>
-          retry429(() => base44.entities.Task.update(id, payload)).then(() => {
+          retry429(() => Task.update(id, payload)).then(() => {
             done++;
             setStage(3, 60 + Math.round((done / updates.length) * 25), `${done} / ${updates.length} dependencies`);
           })
@@ -282,7 +283,7 @@ export default function Programme() {
 
     bulkOperationState.active = true;
     try {
-      const freshTasks = await base44.entities.Task.filter(
+      const freshTasks = await Task.filter(
         { project_id: selectedProjectId }, 'sort_order', 5000
       );
       const allIds = freshTasks.map(t => t.id);
@@ -303,7 +304,7 @@ export default function Programme() {
       // Pass 1: concurrent batches with retry429
       for (let i = 0; i < allIds.length; i += DELETE_CONCURRENT) {
         const batch = allIds.slice(i, i + DELETE_CONCURRENT);
-        const results = await Promise.allSettled(batch.map(id => retry429(() => base44.entities.Task.delete(id))));
+        const results = await Promise.allSettled(batch.map(id => retry429(() => Task.delete(id))));
         results.forEach((r, idx) => {
           if (r.status === 'fulfilled') deleted++;
           else failedIds.push(batch[idx]);
@@ -320,7 +321,7 @@ export default function Programme() {
         failedIds = [];
         for (const id of retrying) {
           try {
-            await retry429(() => base44.entities.Task.delete(id));
+            await retry429(() => Task.delete(id));
             deleted++;
           } catch {
             failedIds.push(id);
@@ -331,7 +332,7 @@ export default function Programme() {
       // Verify
       setDeleteProgress(p => ({ ...p, pct: 88, statusText: 'Verifying…' }));
       await new Promise(r => setTimeout(r, 400));
-      const remaining = await base44.entities.Task.filter({ project_id: selectedProjectId }, 'sort_order', 1);
+      const remaining = await Task.filter({ project_id: selectedProjectId }, 'sort_order', 1);
 
       if (remaining.length > 0 || failedIds.length > 0) {
         const msg = failedIds.length > 0

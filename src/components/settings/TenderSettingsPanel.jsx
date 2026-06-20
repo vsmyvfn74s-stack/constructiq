@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { TenderSettings } from '@/api/entities';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { base44 } from '@/api/base44Client';
 import { Button } from '@/components/ui/button';
@@ -37,7 +38,7 @@ export default function TenderSettingsPanel() {
 
   const { data: settingsList = [] } = useQuery({
     queryKey: ['tenderSettings'],
-    queryFn: () => base44.entities.TenderSettings.list(),
+    queryFn: () => TenderSettings.list(),
   });
 
   useEffect(() => {
@@ -57,8 +58,8 @@ export default function TenderSettingsPanel() {
 
   const saveMutation = useMutation({
     mutationFn: async (data) => {
-      if (settingsId) return base44.entities.TenderSettings.update(settingsId, data);
-      return base44.entities.TenderSettings.create(data);
+      if (settingsId) return TenderSettings.update(settingsId, data);
+      return TenderSettings.create(data);
     },
     onSuccess: (result) => {
       queryClient.invalidateQueries({ queryKey: ['tenderSettings'] });

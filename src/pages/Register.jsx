@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
-import { base44 } from "@/api/base44Client";
+import { supabase } from "@/api/supabaseClient";
 import { clearClientAuthState } from "@/lib/clientAuth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -63,7 +63,8 @@ export default function Register() {
     }
     setLoading(true);
     try {
-      await base44.auth.register({ email: form.email, password: form.password });
+      const { error: signUpError } = await supabase.auth.signUp({ email: form.email, password: form.password });
+      if (signUpError) throw signUpError;
       setShowOtp(true);
     } catch (err) {
       setError(err.message || "Registration failed");
@@ -76,19 +77,20 @@ export default function Register() {
     setError("");
     setLoading(true);
     try {
-      const result = await base44.auth.verifyOtp({ email: form.email, otpCode });
-      if (result?.access_token) {
-        base44.auth.setToken(result.access_token);
-      }
+      const { data, error: verifyError } = await supabase.auth.verifyOtp({ email: form.email, token: otpCode, type: 'signup' });
+      if (verifyError) throw verifyError;
       // Save extra profile data
-      try {
-        await base44.auth.updateMe({
+      if (data?.user) {
+        await supabase.from('users').upsert({
+          id: data.user.id,
+          email: data.user.email,
           first_name: form.first_name,
           last_name: form.last_name,
           phone: form.phone,
           business_name: form.business_name,
+          role: 'external',
         });
-      } catch (_) { /* non-critical */ }
+      }
       window.location.href = "/";
     } catch (err) {
       setError(err.message || "Invalid verification code");
@@ -100,15 +102,16 @@ export default function Register() {
   const handleResend = async () => {
     setError("");
     try {
-      await base44.auth.resendOtp(form.email);
+      const { error } = await supabase.auth.resend({ type: 'signup', email: form.email });
+      if (error) throw error;
       toast({ title: "Code sent", description: "Check your email for the new code." });
     } catch (err) {
       setError(err.message || "Failed to resend code");
     }
   };
 
-  const handleGoogle = () => {
-    base44.auth.loginWithProvider("google", "/");
+  const handleGoogle = async () => {
+    await supabase.auth.signInWithOAuth({ provider: 'google', options: { redirectTo: window.location.origin + '/' } });
   };
 
   if (showOtp) {

@@ -1,3 +1,4 @@
+import { supabase } from '@/api/supabaseClient';
 import React from 'react';
 import { useAuth } from '@/lib/AuthContext';
 import { Menu, LogOut, User } from 'lucide-react';
@@ -60,7 +61,7 @@ export default function TopBar({ onMenuToggle, projectName }) {
           </DropdownMenuItem>
           <DropdownMenuSeparator />
           <DropdownMenuItem
-            onClick={() => base44.auth.logout()}
+            onClick={() => supabase.auth.signOut()}
             className="text-destructive focus:text-destructive"
           >
             <LogOut className="w-4 h-4 mr-2" /> Log out

@@ -1,4 +1,6 @@
+import { invokeFunction, uploadFile } from '@/api/supabaseClient';
 import React, { useState } from 'react';
+import { EmailBranding, EmailTemplate, Project, RFI, User } from '@/api/entities';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { base44 } from '@/api/base44Client';
@@ -26,32 +28,32 @@ export default function RFIDetail() {
 
   const { data: rfi, isLoading } = useQuery({
     queryKey: ['rfi', id],
-    queryFn: () => base44.entities.RFI.filter({ id }, '-created_date', 1).then(results => results[0] ?? null),
+    queryFn: () => RFI.filter({ id }, '-created_date', 1).then(results => results[0] ?? null),
   });
 
   const { data: project } = useQuery({
     queryKey: ['project', rfi?.project_id],
     queryFn: () => rfi?.project_id
-      ? base44.entities.Project.filter({ id: rfi.project_id }, '-created_date', 1).then(r => r[0] ?? null)
+      ? Project.filter({ id: rfi.project_id }, '-created_date', 1).then(r => r[0] ?? null)
       : null,
     enabled: !!rfi?.project_id,
   });
 
   const { data: emailBranding = {} } = useQuery({
     queryKey: ['emailBranding'],
-    queryFn: () => base44.entities.EmailBranding.list().then(r => r[0] ?? {}),
+    queryFn: () => EmailBranding.list().then(r => r[0] ?? {}),
   });
 
   const { data: emailTemplates = [] } = useQuery({
     queryKey: ['emailTemplates'],
-    queryFn: () => base44.entities.EmailTemplate.list(),
+    queryFn: () => EmailTemplate.list(),
   });
 
   const showReplyForm = rfi?.status !== 'Closed';
 
   const { data: registeredUsers = [] } = useQuery({
     queryKey: ['users'],
-    queryFn: () => base44.entities.User.list(),
+    queryFn: () => User.list(),
     enabled: showReplyForm,
   });
 
@@ -59,12 +61,12 @@ export default function RFIDetail() {
   const isAssignee = rfi?.assignees?.some(a => a.email === user?.email) || rfi?.assigned_to_email === user?.email;
 
   const statusMutation = useMutation({
-    mutationFn: (status) => base44.entities.RFI.update(id, { status }),
+    mutationFn: (status) => RFI.update(id, { status }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['rfi', id] }),
   });
 
   const deleteMutation = useMutation({
-    mutationFn: () => base44.entities.RFI.delete(id),
+    mutationFn: () => RFI.delete(id),
     onSuccess: () => navigate('/rfis', { replace: true }),
   });
 
@@ -72,7 +74,7 @@ export default function RFIDetail() {
     mutationFn: async () => {
       let attachments = [];
       if (responseFile) {
-        const { file_url } = await base44.integrations.Core.UploadFile({ file: responseFile });
+        const { file_url } = await uploadFile(responseFile );
         attachments = [{ name: responseFile.name, url: file_url }];
       }
       const newResponse = {
@@ -84,7 +86,7 @@ export default function RFIDetail() {
       };
       const existing = rfi?.responses || [];
       // Mark as Answered when response is sent
-      await base44.entities.RFI.update(id, {
+      await RFI.update(id, {
         responses: [...existing, newResponse],
         status: rfi?.status === 'Open' ? 'Answered' : rfi?.status,
       });
@@ -110,7 +112,7 @@ export default function RFIDetail() {
 
       notifyEmails.forEach(email => {
         if (registeredUsers.some(u => u.email?.toLowerCase() === email?.toLowerCase())) {
-          base44.functions.invoke('sendEmail', { to: email, subject, htmlBody }).catch(() => {});
+          invokeFunction('sendEmail', { to: email, subject, htmlBody }).catch(() => {});
         }
       });
     },

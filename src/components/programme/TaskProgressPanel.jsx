@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { Task } from '@/api/entities';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { base44 } from '@/api/base44Client';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetFooter } from '@/components/ui/sheet';
@@ -27,7 +28,7 @@ export default function TaskProgressPanel({ task, tasks = [], scheduledMap, open
   }, [task]);
 
   const saveMutation = useMutation({
-    mutationFn: (data) => base44.entities.Task.update(task.id, data),
+    mutationFn: (data) => Task.update(task.id, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['tasks'] });
       onOpenChange(false);

@@ -1,4 +1,6 @@
+import { invokeFunction } from '@/api/supabaseClient';
 import React, { useState, useEffect } from 'react';
+import { Tender, User } from '@/api/entities';
 import { useParams, useNavigate, Link, Navigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { base44 } from '@/api/base44Client';
@@ -62,7 +64,7 @@ export default function TenderDetail() {
 
   const { data: tender, isLoading, refetch } = useQuery({
     queryKey: ['tender', id],
-    queryFn: () => base44.entities.Tender.get(id),
+    queryFn: () => Tender.get(id),
     refetchInterval: activeTab === 'submissions' ? 30000 : false,
     refetchIntervalInBackground: false,
   });
@@ -84,7 +86,7 @@ export default function TenderDetail() {
   // Fetch admin+pricing users for Tender Lead selector
   const { data: allUsers = [] } = useQuery({
     queryKey: ['users'],
-    queryFn: () => base44.entities.User.list(),
+    queryFn: () => User.list(),
     enabled: !!canManage,
   });
   const eligibleLeads = allUsers.filter(u => u.role === 'admin' || u.role === 'pricing');
@@ -108,7 +110,7 @@ export default function TenderDetail() {
   }, [form, tender]);
 
   const updateMutation = useMutation({
-    mutationFn: (data) => base44.functions.invoke('updateTender', { tenderId: id, data }),
+    mutationFn: (data) => invokeFunction('updateTender', { tenderId: id, data }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['tender', id] });
       queryClient.invalidateQueries({ queryKey: ['tenders'] });
@@ -117,7 +119,7 @@ export default function TenderDetail() {
 
   // Phase 3: use dedicated deleteTender function
   const deleteMutation = useMutation({
-    mutationFn: () => base44.functions.invoke('deleteTender', { tenderId: id }),
+    mutationFn: () => invokeFunction('deleteTender', { tenderId: id }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['tenders'] });
       navigate('/tenders');

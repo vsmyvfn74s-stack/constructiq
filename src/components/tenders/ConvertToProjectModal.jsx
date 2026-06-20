@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { Document, Project, Tender, TenderSubmission } from '@/api/entities';
 import { base44 } from '@/api/base44Client';
 import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
@@ -21,7 +22,7 @@ export default function ConvertToProjectModal({ tender, open, onOpenChange }) {
 
   const { data: allSubmissions = [] } = useQuery({
     queryKey: ['tenderSubmissions', tender?.id],
-    queryFn: () => base44.entities.TenderSubmission.filter({ tender_id: tender.id }),
+    queryFn: () => TenderSubmission.filter({ tender_id: tender.id }),
     enabled: !!tender?.id && open,
   });
 
@@ -74,7 +75,7 @@ export default function ConvertToProjectModal({ tender, open, onOpenChange }) {
         projectData.description = tender.description;
       }
 
-      const newProject = await base44.entities.Project.create(projectData);
+      const newProject = await Project.create(projectData);
 
       // Copy selected docs
       const docsToCreate = (tender.documents || [])
@@ -90,11 +91,11 @@ export default function ConvertToProjectModal({ tender, open, onOpenChange }) {
         }));
 
       for (const doc of docsToCreate) {
-        await base44.entities.Document.create(doc);
+        await Document.create(doc);
       }
 
       // Update tender status
-      await base44.entities.Tender.update(tender.id, {
+      await Tender.update(tender.id, {
         status: 'Converted',
         converted_project_id: newProject.id,
       });

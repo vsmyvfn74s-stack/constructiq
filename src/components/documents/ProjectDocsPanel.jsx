@@ -1,4 +1,6 @@
+import { uploadFile } from '@/api/supabaseClient';
 import React, { useState, useRef } from 'react';
+import { Document } from '@/api/entities';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
@@ -73,15 +75,15 @@ export default function ProjectDocsPanel({ project, docs = [] }) {
   };
 
   const moveMutation = useMutation({
-    mutationFn: ({ id, folder }) => base44.entities.Document.update(id, { folder: folder || null }),
+    mutationFn: ({ id, folder }) => Document.update(id, { folder: folder || null }),
     onSuccess: invalidate,
   });
 
   const statusMutation = useMutation({
     mutationFn: ({ id, status, ownerEmail }) => {
-      const promise = base44.entities.Document.update(id, { status });
+      const promise = Document.update(id, { status });
       if (ownerEmail) {
-        base44.integrations.Core.SendEmail({
+        sendEmail({
           to: ownerEmail,
           subject: `Document status changed to ${status}`,
           body: `A document you uploaded has been updated to status: ${status}.`,
@@ -93,7 +95,7 @@ export default function ProjectDocsPanel({ project, docs = [] }) {
   });
 
   const deleteMutation = useMutation({
-    mutationFn: (id) => base44.entities.Document.delete(id),
+    mutationFn: (id) => Document.delete(id),
     onSuccess: invalidate,
   });
 
@@ -102,8 +104,8 @@ export default function ProjectDocsPanel({ project, docs = [] }) {
     const docName = f?.name?.replace(/\.[^/.]+$/, '') || uploadForm.name;
     if (!f || !docName) return;
     setUploading(true);
-    const { file_url } = await base44.integrations.Core.UploadFile({ file: f });
-    await base44.entities.Document.create({
+    const { file_url } = await uploadFile(f );
+    await Document.create({
       name: docName,
       project_id: project.id,
       folder: folder || uploadForm.folder || undefined,
@@ -137,9 +139,9 @@ export default function ProjectDocsPanel({ project, docs = [] }) {
   const handleNewVersion = async () => {
     if (!versionFile || !versioningDoc) return;
     setVersionUploading(true);
-    const { file_url: newFileUrl } = await base44.integrations.Core.UploadFile({ file: versionFile });
+    const { file_url: newFileUrl } = await uploadFile(versionFile );
     const existingVersions = versioningDoc.versions || [];
-    await base44.entities.Document.update(versioningDoc.id, {
+    await Document.update(versioningDoc.id, {
       file_url: newFileUrl,
       version_number: (versioningDoc.version_number || 1) + 1,
       versions: [

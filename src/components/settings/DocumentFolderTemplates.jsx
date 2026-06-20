@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { DocumentFolderTemplate } from '@/api/entities';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { base44 } from '@/api/base44Client';
 import { Button } from '@/components/ui/button';
@@ -22,11 +23,11 @@ export default function DocumentFolderTemplates() {
 
   const { data: templates = [] } = useQuery({
     queryKey: ['documentFolderTemplates'],
-    queryFn: () => base44.entities.DocumentFolderTemplate.list('-created_date', 50),
+    queryFn: () => DocumentFolderTemplate.list('-created_date', 50),
   });
 
   const createMutation = useMutation({
-    mutationFn: (data) => base44.entities.DocumentFolderTemplate.create(data),
+    mutationFn: (data) => DocumentFolderTemplate.create(data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['documentFolderTemplates'] });
       setNewTemplateName('');
@@ -35,7 +36,7 @@ export default function DocumentFolderTemplates() {
   });
 
   const updateMutation = useMutation({
-    mutationFn: ({ id, data }) => base44.entities.DocumentFolderTemplate.update(id, data),
+    mutationFn: ({ id, data }) => DocumentFolderTemplate.update(id, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['documentFolderTemplates'] });
       setEditingId(null);
@@ -44,7 +45,7 @@ export default function DocumentFolderTemplates() {
   });
 
   const deleteMutation = useMutation({
-    mutationFn: (id) => base44.entities.DocumentFolderTemplate.delete(id),
+    mutationFn: (id) => DocumentFolderTemplate.delete(id),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['documentFolderTemplates'] }),
   });
 
@@ -52,9 +53,9 @@ export default function DocumentFolderTemplates() {
     mutationFn: async (id) => {
       // Unset all others
       for (const t of templates) {
-        if (t.is_default) await base44.entities.DocumentFolderTemplate.update(t.id, { is_default: false });
+        if (t.is_default) await DocumentFolderTemplate.update(t.id, { is_default: false });
       }
-      return base44.entities.DocumentFolderTemplate.update(id, { is_default: true });
+      return DocumentFolderTemplate.update(id, { is_default: true });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['documentFolderTemplates'] });

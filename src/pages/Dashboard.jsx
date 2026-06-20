@@ -1,4 +1,5 @@
 import React from 'react';
+import { Document, Project, RFI, Task } from '@/api/entities';
 import { useQuery } from '@tanstack/react-query';
 import { base44 } from '@/api/base44Client';
 import { useAuth } from '@/lib/AuthContext';
@@ -39,7 +40,7 @@ export default function Dashboard() {
 
   const { data: allProjects = [] } = useQuery({
     queryKey: ['projects'],
-    queryFn: () => base44.entities.Project.list('-created_date', 100),
+    queryFn: () => Project.list('-created_date', 100),
   });
 
   const projects = userIsAdmin
@@ -50,19 +51,19 @@ export default function Dashboard() {
 
   const { data: allRfis = [] } = useQuery({
     queryKey: ['rfis'],
-    queryFn: () => base44.entities.RFI.list('-created_date', 200),
+    queryFn: () => RFI.list('-created_date', 200),
     enabled: projectIds.size > 0 || userIsAdmin,
   });
 
   const { data: allDocuments = [] } = useQuery({
     queryKey: ['documents'],
-    queryFn: () => base44.entities.Document.list('-created_date', 100),
+    queryFn: () => Document.list('-created_date', 100),
     enabled: projectIds.size > 0 || userIsAdmin,
   });
 
   const { data: allTasks = [] } = useQuery({
     queryKey: ['tasks'],
-    queryFn: () => base44.entities.Task.list('-updated_date', 500),
+    queryFn: () => Task.list('-updated_date', 500),
     enabled: projectIds.size > 0 || userIsAdmin,
   });
 
