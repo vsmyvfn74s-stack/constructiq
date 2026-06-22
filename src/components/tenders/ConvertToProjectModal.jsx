@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Document, Project, Tender, TenderSubmission } from '@/api/entities';
-import { base44 } from '@/api/base44Client';
+import { invokeFunction } from '@/api/supabaseClient';
 import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -99,6 +99,16 @@ export default function ConvertToProjectModal({ tender, open, onOpenChange }) {
         status: 'Converted',
         converted_project_id: newProject.id,
       });
+
+      // Invite / notify all team members (non-blocking)
+      if (team.length > 0) {
+        invokeFunction('invitationService', {
+          action:      'bulkInviteProjectTeam',
+          projectId:   newProject.id,
+          projectName: newProject.name,
+          teamMembers: team.map(m => ({ email: m.user_email, name: m.full_name, role: m.role })),
+        }).catch(() => { /* non-blocking — project still created */ });
+      }
 
       queryClient.invalidateQueries({ queryKey: ['tenders'] });
       queryClient.invalidateQueries({ queryKey: ['projects'] });

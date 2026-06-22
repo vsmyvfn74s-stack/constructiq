@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
 import { TenderInvitation } from '@/api/entities';
 import { useQuery } from '@tanstack/react-query';
-import { base44 } from '@/api/base44Client';
 import { useAuth } from '@/lib/AuthContext';
 import { Button } from '@/components/ui/button';
 import { ChevronDown, ChevronUp, Bug, CheckCircle2, XCircle, AlertTriangle, RefreshCw } from 'lucide-react';

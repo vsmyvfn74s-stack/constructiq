@@ -17,18 +17,26 @@ import { supabase } from '@/api/supabaseClient';
 
 function entity(table) {
   return {
-    async list() {
-      const { data, error } = await supabase.from(table).select('*').order('created_at', { ascending: false });
+    async list(sortField, limit) {
+      const col = sortField ? sortField.replace(/^-/, '') : 'created_at';
+      const ascending = sortField ? !sortField.startsWith('-') : false;
+      let query = supabase.from(table).select('*').order(col, { ascending });
+      if (limit) query = query.limit(limit);
+      const { data, error } = await query;
       if (error) throw error;
       return data;
     },
 
-    async filter(match) {
+    async filter(match, sortField, limit) {
       let query = supabase.from(table).select('*');
       Object.entries(match).forEach(([key, value]) => {
         query = query.eq(key, value);
       });
-      const { data, error } = await query.order('created_at', { ascending: false });
+      const col = sortField ? sortField.replace(/^-/, '') : 'created_at';
+      const ascending = sortField ? !sortField.startsWith('-') : false;
+      query = query.order(col, { ascending });
+      if (limit) query = query.limit(limit);
+      const { data, error } = await query;
       if (error) throw error;
       return data;
     },
@@ -41,6 +49,12 @@ function entity(table) {
 
     async create(payload) {
       const { data, error } = await supabase.from(table).insert(payload).select().single();
+      if (error) throw error;
+      return data;
+    },
+
+    async bulkCreate(payloads) {
+      const { data, error } = await supabase.from(table).insert(payloads).select();
       if (error) throw error;
       return data;
     },
@@ -78,5 +92,8 @@ export const PendingProjectAssignment  = entity('pending_project_assignments');
 export const ProjectRole               = entity('project_roles');
 export const AuditLog                  = entity('audit_logs');
 export const EmailBranding             = entity('email_branding');
+export const TenderNotice              = entity('tender_notices');
+export const TenderNoticeAttachment    = entity('tender_notice_attachments');
+export const ContractInstruction       = entity('contract_instructions');
 export const EmailTemplate             = entity('email_templates');
 export const DocumentFolderTemplate    = entity('document_folder_templates');

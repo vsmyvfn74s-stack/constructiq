@@ -3,7 +3,6 @@ import React, { useState, useEffect } from 'react';
 import { Tender, User } from '@/api/entities';
 import { useParams, useNavigate, Link, Navigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { base44 } from '@/api/base44Client';
 import { useAuth } from '@/lib/AuthContext';
 import { canAccess, canManage as canManagePerm } from '@/lib/permissions';
 import { Button } from '@/components/ui/button';
@@ -12,7 +11,7 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { ArrowLeft, Save, X, Trash2, AlertCircle, RefreshCw, FolderOpen, Lock, User } from 'lucide-react';
+import { ArrowLeft, Save, X, Trash2, AlertCircle, RefreshCw, FolderOpen, Lock, User as UserIcon } from 'lucide-react';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
 import { useToast } from '@/components/ui/use-toast';
 import TenderDocuments from '@/components/tenders/TenderDocuments';
@@ -21,9 +20,9 @@ import SubmissionScorer from '@/components/tenders/SubmissionScorer.jsx';
 import OutcomePanel from '@/components/tenders/OutcomePanel.jsx';
 import ConvertToProjectModal from '@/components/tenders/ConvertToProjectModal';
 import TenderHealthPanel from '@/components/tenders/TenderHealthPanel.jsx';
-import TenderDebugPanel from '@/components/tenders/TenderDebugPanel';
 import TenderInvitationStats from '@/components/tenders/TenderInvitationStats';
 import TenderActivityFeed from '@/components/tenders/TenderActivityFeed';
+import TenderNTTPanel from '@/components/tenders/TenderNTTPanel';
 
 const TRADES = [
   'Electrical', 'Plumbing', 'HVAC', 'Carpentry', 'Masonry',
@@ -94,7 +93,7 @@ export default function TenderDetail() {
   // Detect unsaved changes
   useEffect(() => {
     if (!tender || !form) return;
-    const textFields = ['title', 'description', 'status', 'location', 'issue_date', 'notes', 'client_name', 'client_email', 'architect_name', 'architect_email', 'project_manager_name', 'project_manager_email', 'tender_lead_user_id'];
+    const textFields = ['title', 'description', 'status', 'location', 'issue_date', 'site_visit_date', 'questions_date', 'notes', 'client_name', 'client_email', 'architect_name', 'architect_email', 'project_manager_name', 'project_manager_email', 'tender_lead_user_id'];
     const textChanged = textFields.some(key => String(form[key] ?? '') !== String(tender[key] ?? ''));
     const valueChanged = String(form.estimated_value ?? '') !== String(tender.estimated_value ?? '');
     const tradeChanged = JSON.stringify(form.trade_packages ?? []) !== JSON.stringify(tender.trade_packages ?? []);
@@ -151,6 +150,8 @@ export default function TenderDetail() {
       status: form.status,
       location: form.location,
       issue_date: form.issue_date,
+      site_visit_date: form.site_visit_date || null,
+      questions_date: form.questions_date || null,
       closing_date: buildClosingDatetime(),
       estimated_value: form.estimated_value ? Number(form.estimated_value) : null,
       trade_packages: form.trade_packages || [],
@@ -279,6 +280,7 @@ export default function TenderDetail() {
           <TabsTrigger value="details">Details</TabsTrigger>
           <TabsTrigger value="documents">Documents {tender.documents?.length > 0 && <span className="ml-1 text-xs opacity-60">{tender.documents.length}</span>}</TabsTrigger>
           <TabsTrigger value="invitees">Invitees</TabsTrigger>
+          <TabsTrigger value="ntts">NTTs</TabsTrigger>
           <TabsTrigger value="submissions">Submissions</TabsTrigger>
           <TabsTrigger value="outcome">Outcome</TabsTrigger>
           <TabsTrigger value="activity">Activity</TabsTrigger>
@@ -337,12 +339,20 @@ export default function TenderDetail() {
               <Label className="text-xs">Closing Time</Label>
               <Input type="time" value={form.closing_time || '17:00'} onChange={e => setForm(f => ({ ...f, closing_time: e.target.value }))} disabled={!canManage} />
             </div>
+            <div>
+              <Label className="text-xs">Site Visit Date</Label>
+              <Input type="date" value={form.site_visit_date || ''} onChange={e => setForm(f => ({ ...f, site_visit_date: e.target.value }))} disabled={!canManage} />
+            </div>
+            <div>
+              <Label className="text-xs">Questions Deadline</Label>
+              <Input type="date" value={form.questions_date || ''} onChange={e => setForm(f => ({ ...f, questions_date: e.target.value }))} disabled={!canManage} />
+            </div>
           </div>
 
           {/* Tender Ownership */}
           <div className="grid sm:grid-cols-2 gap-4 p-4 border rounded-lg bg-muted/20">
             <div className="sm:col-span-2 flex items-center gap-2 mb-1">
-              <User className="w-4 h-4 text-muted-foreground" />
+              <UserIcon className="w-4 h-4 text-muted-foreground" />
               <h3 className="text-sm font-semibold">Tender Ownership</h3>
             </div>
             {/* Created By — read-only */}
@@ -562,12 +572,16 @@ export default function TenderDetail() {
           <div className="space-y-4">
             <TenderInvitationStats tenderId={tender.id} />
             <TenderHealthPanel tender={tender} user={user} />
-            <TenderDebugPanel tender={tender} />
-            <InviteeManager tender={tender} onUpdate={handleUpdate} canManage={effectiveCanManage} />
+<InviteeManager tender={tender} onUpdate={handleUpdate} canManage={effectiveCanManage} />
           </div>
         </TabsContent>
 
-        {/* Tab 4 — Submissions */}
+        {/* Tab 4 — NTTs */}
+        <TabsContent value="ntts">
+          <TenderNTTPanel tender={tender} canManage={effectiveCanManage} />
+        </TabsContent>
+
+        {/* Tab 5 — Submissions */}
         <TabsContent value="submissions">
           <div className="flex items-center justify-between mb-4">
             <h3 className="font-semibold">Submissions Received</h3>
