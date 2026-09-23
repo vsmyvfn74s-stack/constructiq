@@ -1,0 +1,37 @@
+{
+  "name": "Notify on Submission Received",
+  "description": "Fires when a new TenderSubmission is created. Notifies the Tender Lead and optionally admin users based on TenderSettings.",
+  "trigger": {
+    "condition": null,
+    "config": {
+      "trigger_type": "entity",
+      "events": [
+        "create"
+      ],
+      "entity_name": "TenderSubmission"
+    }
+  },
+  "definition": {
+    "document": {
+      "dsl": "1.0.0",
+      "name": "notify_on_submission_received",
+      "version": "1.0",
+      "namespace": "base44"
+    },
+    "do": [
+      {
+        "run_function": {
+          "call": "invoke_backend_function",
+          "with": {
+            "function_name": "notifySubmissionReceived",
+            "args": {}
+          },
+          "then": "end"
+        }
+      }
+    ]
+  },
+  "x-base44-migrated-from-automation": {
+    "legacy_payload_function": "notifySubmissionReceived"
+  }
+}
